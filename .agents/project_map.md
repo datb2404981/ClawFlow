@@ -12,7 +12,10 @@
 
 ### 3. `/AI_Core` (Python / FastAPI)
 - `main.py`: Điểm khởi chạy của AI Core Server.
-- `Agents/`: Chứa logic của hệ thống Multi-Agent (VD: Leader, Browser, QA).
+- `Api/`: Quản lý các cổng giao tiếp (Endpoints).
+  - `chat.py`: API xử lý hội thoại (đã tích hợp APIRouter).
+  - `schemas/`: Chứa các Data Contract (Pydantic Models) để validate dữ liệu đầu vào/ra (VD: `chat_schema.py`).
+- `Agents/`: Chứa logic của hệ thống Multi-Agent (VD: `base_agent.py`, `leader_agent.py`).
 - `Tools/`: Chứa các module Kỹ năng (Agent Skills) - công cụ cho các Agent.
 - `.env`: Chứa các biến môi trường cấu hình (API keys, ports...).
 - `venv/`: Môi trường ảo (Virtual Environment) của Python.
@@ -38,6 +41,10 @@ Dự án này tuân theo kiến trúc module. Dưới đây là sơ đồ các t
 ## 📝 Nhật ký thay đổi (AI Update Log)
 *(QUAN TRỌNG: Chỉ lưu tối đa 10 thay đổi gần nhất. Tự động xóa các dòng cũ dưới cùng nếu vượt quá)*
 *AI sẽ tự động ghi chú các thay đổi vào danh sách bên dưới (Mới nhất nằm trên cùng):*
+
+- **[Cài đặt Thư viện]**: Đã cài đặt thành công `langchain-ollama` để hỗ trợ kết nối Leader Agent với model Ollama cục bộ.
+
+- **[Thêm Skill Giám Sát]**: Đã tạo file kỹ năng chuyên biệt `realtime_update_map.md` cài cắm vào thư mục `.agents/skills/` yêu cầu AI bắt buộc đồng bộ code và Map theo thời gian thực.
 
 - **[Khởi tạo Requirements]**: Xuất danh sách các thư viện Python hiện tại ra file `AI_Core/requirements.txt`.
 - **[Giới hạn Log]**: Cập nhật quy tắc giới hạn độ dài của file log (tối đa 10 mục) để file không bị quá dài.

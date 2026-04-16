@@ -28,4 +28,4 @@
 2. Giải thích giải pháp bằng **Tiếng Việt** ngắn gọn trước khi xuất code.
 3. Code đi từng bước, chia file rõ ràng.
 4. **[QUAN TRỌNG]**: Mọi thay đổi về cấu trúc, file mới, thư viện mới, MI BẮT BUỘC tự động cập nhật vào file `project_map.md`.
-5. **[NHẬT KÝ THAY ĐỔI]**: Bất cứ khi nào có thay đổi về logic code, thêm/sửa/xóa tính năng, MI BẮT BUỘC phải tự động viết log ghi chú lại vào phần "📝 Nhật ký thay đổi (AI Update Log)" trong file `project_map.md`.
+5. **[NHẬT KÝ THAY ĐỔI]**: Mọi thay đổi code/tính năng, BẮT BUỘC phải viết log vào "📝 Nhật ký thay đổi" trong `project_map.md`. *Lưu ý: Chỉ giữ tối đa 10 log gần nhất, tự động xóa mục cũ nhất nếu vượt quá 10.*
