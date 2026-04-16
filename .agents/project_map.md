@@ -36,7 +36,11 @@ Dự án này tuân theo kiến trúc module. Dưới đây là sơ đồ các t
 ---
 
 ## 📝 Nhật ký thay đổi (AI Update Log)
+*(QUAN TRỌNG: Chỉ lưu tối đa 10 thay đổi gần nhất. Tự động xóa các dòng cũ dưới cùng nếu vượt quá)*
 *AI sẽ tự động ghi chú các thay đổi vào danh sách bên dưới (Mới nhất nằm trên cùng):*
+
+- **[Khởi tạo Requirements]**: Xuất danh sách các thư viện Python hiện tại ra file `AI_Core/requirements.txt`.
+- **[Giới hạn Log]**: Cập nhật quy tắc giới hạn độ dài của file log (tối đa 10 mục) để file không bị quá dài.
 
 - **[Tối ưu Token]**: Thêm luật bắt buộc AI phải tham khảo `project_map.md` thay vì tự động cào toàn bộ thư mục mỗi khi nhận yêu cầu sửa code.
 - **[Cập nhật Rule]**: Bổ sung luật số 4 vào `agents.md` bắt buộc AI phải ghi log mỗi khi có thay đổi về logic code.
