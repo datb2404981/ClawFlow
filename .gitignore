@@ -1,0 +1,54 @@
+# ==========================================
+# 1. HỆ ĐIỀU HÀNH & CÔNG CỤ CODE (OS & Editor)
+# ==========================================
+# Tránh đẩy file rác của Mac và Windows
+.DS_Store
+Thumbs.db
+# Cấu hình riêng của các trình gõ code (VS Code, WebStorm)
+.vscode/
+.idea/
+
+# ==========================================
+# 2. BẢO MẬT (Security) - CỰC KỲ QUAN TRỌNG
+# ==========================================
+# Chặn tất cả các file chứa biến môi trường (Mật khẩu Database, API Key)
+.env
+.env.*
+# (Cho phép đẩy file .env.example lên để làm mẫu cho người khác)
+!.env.example 
+
+# ==========================================
+# 3. NESTJS BACKEND & FRONTEND (Node.js/TypeScript)
+# ==========================================
+# Thư viện tải về (Cực kỳ nặng)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Thư mục chứa code sau khi đã biên dịch (Build/Compile)
+dist/
+build/
+.next/
+.nuxt/
+
+# Các file sinh ra trong quá trình test
+coverage/
+
+# ==========================================
+# 4. AI SERVICE (Python/FastAPI)
+# ==========================================
+# Môi trường ảo (Virtual Environment)
+venv/
+env/
+.venv/
+
+# Thư mục cache của Python (Compiled bytecode - máy tính tự sinh ra để đọc nhanh hơn)
+__pycache__/
+*.py[cod]
+*~
+
+# Log lỗi của ứng dụng
+*.log
+
+# Cấu hình test của Python
+.pytest_cache/
