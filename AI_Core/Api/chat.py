@@ -3,7 +3,7 @@ from datetime import datetime
 
 # Đường dẫn Import gốc từ thư mục AI_Core
 from Api.schemas.chat_schema import ChatRequest, ChatResponse
-from Agents.leader_agent import leader_agent
+from graph import run_graph
 
 # Để tách file API riêng, FastAPI cung cấp thư viện APIRouter
 router = APIRouter()
@@ -11,15 +11,13 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_ai(req: ChatRequest):
     try:
-        # Gửi cái `req.message` (chuỗi text) cho leader đọc và chờ phản hồi
-        result = leader_agent.invoke(req.message)
+        result = await run_graph(req.message, user_id=req.session_id)
         
-        # Trả về Response khi có kết quả từ AI
         return ChatResponse(
             status="success",
-            reply=result.content,
+            reply=result, 
             error=None,
-            agent_used=["leader_agent"]
+            agent_used=["leader_agent (LangGraph)"]
         )
 
     except Exception as e:

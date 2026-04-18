@@ -42,6 +42,9 @@ Dự án này tuân theo kiến trúc module. Dưới đây là sơ đồ các t
 *(QUAN TRỌNG: Chỉ lưu tối đa 10 thay đổi gần nhất. Tự động xóa các dòng cũ dưới cùng nếu vượt quá)*
 *AI sẽ tự động ghi chú các thay đổi vào danh sách bên dưới (Mới nhất nằm trên cùng):*
 
+- **[Cài đặt Tools]**: Tích hợp Playwright và BeautifulSoup4 vào dự án; thiết lập file thử nghiệm `tool_browser.py` để lấy dữ liệu trang web.
+- **[Thêm Agent Mới]**: Khởi tạo `browser_agent.py` để chuẩn bị cho nhóm tác vụ thu thập thông tin web (Web Scraping).
+
 - **[Cài đặt Thư viện]**: Đã cài đặt thành công `langchain-ollama` để hỗ trợ kết nối Leader Agent với model Ollama cục bộ.
 
 - **[Thêm Skill Giám Sát]**: Đã tạo file kỹ năng chuyên biệt `realtime_update_map.md` cài cắm vào thư mục `.agents/skills/` yêu cầu AI bắt buộc đồng bộ code và Map theo thời gian thực.
