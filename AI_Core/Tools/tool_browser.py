@@ -63,8 +63,15 @@ async def Read_URL_Content(url: str) -> str:
     except Exception as e:
         return f"[LỖI ĐỌC URL]: {str(e)}"
 
+@tool
+async def Delegate_To_Content_Agent(instructions: str, raw_data: str) -> str:
+    """GIAO VIỆC CHO NHÂN VIÊN CONTENT WRITER. 
+    Gọi tool này khi bạn ĐÃ TÌM ĐỦ DỮ LIỆU và CẦN VIẾT/ĐỊNH DẠNG/VẼ BẢNG/BÁO CÁO.
+    Lệnh này sẽ tự động dừng Leader và giao toàn bộ việc còn lại cho Content Agent."""
+    return f"ĐÃ CHUYỂN GIAO CHO CONTENT AGENT. Yêu cầu: {instructions}"
+
 # Công cụ
-tool_browsers = [Search_Tavily, Read_URL_Content]
+tool_browsers = [Search_Tavily, Read_URL_Content, Delegate_To_Content_Agent]
 
 # Tạo từ điển
 tool_by_name = {t.name: t for t in tool_browsers}
