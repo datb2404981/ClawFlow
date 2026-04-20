@@ -4,8 +4,15 @@
 
 ## 📂 Cấu trúc thư mục (Directory Structure)
 
-### 1. `/Frontend`
-- *(Hiện tại đang là thư mục trống - chờ khởi tạo project)*
+### 1. `/Frontend` (React + Vite + TypeScript)
+- `package.json`: scripts `dev`, `build`, `lint`, `preview` (Vite 8, React 19).
+- `vite.config.ts`, `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`.
+- `index.html`: HTML entry.
+- `src/main.tsx`: mount React root.
+- `src/App.tsx`, `src/App.css`, `src/index.css`: app mặc định từ template Vite.
+- `src/assets/`: `react.svg`, `vite.svg`, `hero.png`.
+- `public/`: `favicon.svg`, `icons.svg`.
+- **Chạy local**: `cd Frontend && npm install && npm run dev` (mặc định thường là `http://localhost:5173`).
 
 ### 2. `/Backend`
 - *(Hiện tại đang là thư mục trống - chờ khởi tạo project)*
@@ -22,7 +29,7 @@
 
 ## 🏗️ Bản đồ kiến trúc dự án (Dự kiến)
 
-*(Lưu ý: `/Backend` và `/Frontend` hiện tại chưa được bắt đầu code. Dưới đây là kiến trúc dự kiến sẽ được triển khai cho Backend)*
+*(Lưu ý: `/Frontend` đã khởi tạo Vite + React + TS; `/Backend` vẫn trống. Đoạn dưới là kiến trúc dự kiến cho Backend.)*
 
 Dự án này tuân theo kiến trúc module. Dưới đây là sơ đồ các thư mục quan trọng:
 
@@ -42,20 +49,13 @@ Dự án này tuân theo kiến trúc module. Dưới đây là sơ đồ các t
 *(QUAN TRỌNG: Chỉ lưu tối đa 10 thay đổi gần nhất. Tự động xóa các dòng cũ dưới cùng nếu vượt quá)*
 *AI sẽ tự động ghi chú các thay đổi vào danh sách bên dưới (Mới nhất nằm trên cùng):*
 
+- **[Khởi tạo Frontend]**: Tạo `Frontend/` bằng `npm create vite@latest -- --template react-ts` (Vite 8, React 19, TypeScript, ESLint). Đã `npm install`; `npm run build` thành công. *(Chưa cài `react-router-dom` / `socket.io-client` — thêm khi cần.)*
 - **[Cài đặt Tools]**: Tích hợp Playwright và BeautifulSoup4 vào dự án; thiết lập file thử nghiệm `tool_browser.py` để lấy dữ liệu trang web.
 - **[Thêm Agent Mới]**: Khởi tạo `browser_agent.py` để chuẩn bị cho nhóm tác vụ thu thập thông tin web (Web Scraping).
-
 - **[Cài đặt Thư viện]**: Đã cài đặt thành công `langchain-ollama` để hỗ trợ kết nối Leader Agent với model Ollama cục bộ.
-
 - **[Thêm Skill Giám Sát]**: Đã tạo file kỹ năng chuyên biệt `realtime_update_map.md` cài cắm vào thư mục `.agents/skills/` yêu cầu AI bắt buộc đồng bộ code và Map theo thời gian thực.
-
 - **[Khởi tạo Requirements]**: Xuất danh sách các thư viện Python hiện tại ra file `AI_Core/requirements.txt`.
 - **[Giới hạn Log]**: Cập nhật quy tắc giới hạn độ dài của file log (tối đa 10 mục) để file không bị quá dài.
-
 - **[Tối ưu Token]**: Thêm luật bắt buộc AI phải tham khảo `project_map.md` thay vì tự động cào toàn bộ thư mục mỗi khi nhận yêu cầu sửa code.
 - **[Cập nhật Rule]**: Bổ sung luật số 4 vào `agents.md` bắt buộc AI phải ghi log mỗi khi có thay đổi về logic code.
-- **[Cập nhật project_map]**: Chỉnh sửa file để phản ánh sự thật là `/Frontend` và `/Backend` hiện đang trống, phần cấu trúc kia là (Dự kiến).
 - **[Bổ sung Kiến trúc]**: Thêm phần "Bản đồ kiến trúc dự án" để định hình rõ cấu trúc thư mục module (NestJS) của Backend.
-- **[Cập nhật project_map]**: Đồng bộ nội dung `project_map.md` với cấu trúc thực tế của mã nguồn (`AI_Core` chứa `Agents`, `Tools`, `main.py`).
-- **[Thêm Frontend]**: Đã khởi tạo thư mục `/Frontend` bằng React (Vite) + TypeScript. Cài đặt `react-router-dom` và `socket.io-client`. Cập nhật lại luật cho AI.
-- **[Khởi tạo Hệ thống]**: Đã định hình kiến trúc Monorepo, tạo các file cấu hình AI (`agents.md`, `project_map.md`), thiết lập `.gitignore`.
