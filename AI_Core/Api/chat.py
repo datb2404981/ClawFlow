@@ -11,7 +11,12 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_ai(req: ChatRequest):
     try:
-        result = await run_graph(req.message, user_id=req.session_id)
+        # Ở đây ta quy định session_id của Frontend truyền lên chính là thread_id của LangGraph
+        result = await run_graph(
+            query=req.message, 
+            user_id=req.user_id,
+            thread_id=req.session_id
+        )
         
         return ChatResponse(
             status="success",

@@ -4,7 +4,8 @@ from datetime import datetime
 
 # 1. Định nghĩa Contract Đầu vào
 class ChatRequest(BaseModel):
-    session_id: str
+    user_id: str = Field(..., description="ID của người dùng đăng nhập")
+    session_id: str = Field(..., description="ID của phòng chat (thread) hiện tại")
     message: str = Field(
     ...,
     min_length=1,
