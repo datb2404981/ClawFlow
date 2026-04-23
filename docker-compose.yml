@@ -1,0 +1,67 @@
+# Compose đọc biến từ `.env` ở thư mục gốc (chỉ để nội suy ${JWT_SECRET}…), nhưng
+# MONGO_URI lấy từ Backend/.env qua env_file — trùng với khi bạn chạy Nest local + Atlas.
+#
+# Mongo trong Docker (tùy chọn): docker compose --profile local-db up -d mongodb
+# rồi trong Backend/.env đặt: MONGO_URI=mongodb://mongodb:27017/clawflow
+
+services:
+  mongodb:
+    profiles:
+      - local-db
+    image: mongo:latest
+    container_name: openclaw_db
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - openclaw_network
+
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: DockerFile
+    container_name: openclaw_backend
+    ports:
+      - '8080:8080'
+    env_file:
+      - ./Backend/.env
+    environment:
+      # Chỉ bổ sung khi cần — không đặt GOOGLE_* / MONGO_URI rỗng ở đây (sẽ ghi đè Backend/.env).
+      JWT_SECRET: ${JWT_SECRET:-clawflow-docker-dev-only-change-me}
+    networks:
+      - openclaw_network
+
+  ai_core:
+    build:
+      context: ./AI_Core
+      dockerfile: DockerFile
+    container_name: openclaw_ai
+    ports:
+      - '8000:8000'
+    env_file:
+      - ./Backend/.env
+    networks:
+      - openclaw_network
+
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: DockerFile
+    container_name: openclaw_frontend
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./Frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - openclaw_network
+
+networks:
+  openclaw_network:
+    driver: bridge
+
+volumes:
+  mongo_data:

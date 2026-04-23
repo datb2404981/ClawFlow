@@ -94,7 +94,13 @@ export class AuthController {
     if (!req.user?._id) {
       return res.redirect(302, `${base}/login?error=google`);
     }
-    await this.authService.loginGoogle(req.user, res);
-    return res.redirect(302, `${base}/login?status=success`);
+    const { access_token } = await this.authService.loginGoogle(req.user, res);
+    // Query param: nhiều trình duyệt bỏ fragment (#...) sau chuỗi redirect 302 — token không tới được SPA.
+    // Xóa `access_token` ngay trên frontend sau khi đọc (tránh lộ trong history lâu hơn cần).
+    const q = encodeURIComponent(access_token);
+    return res.redirect(
+      302,
+      `${base}/login?status=success&access_token=${q}`,
+    );
   }
 }

@@ -1,0 +1,23 @@
+# Sử dụng Image (Ảnh mẫu) của Node.js bản 20
+FROM node:20-alpine
+
+# Tạo thư mục làm việc trong Container
+WORKDIR /app
+
+# Copy file cấu hình package trước để tối ưu Cache (Bộ nhớ đệm)
+COPY package*.json ./
+
+# Cài đặt thư viện
+RUN npm install
+
+# Copy toàn bộ code vào
+COPY . .
+
+# Build dự án NestJS sang Javascript
+RUN npm run build
+
+# Mở cổng 3000 cho Backend
+EXPOSE 8080
+
+# Lệnh khởi chạy server
+CMD ["npm", "run", "start:prod"]

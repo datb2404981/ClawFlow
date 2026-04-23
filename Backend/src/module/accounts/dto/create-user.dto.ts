@@ -4,9 +4,14 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+/** Chữ hoa + số + ký tự đặc biệt (không dùng khoảng trắng làm ký tự đặc biệt). */
+export const PASSWORD_STRENGTH_REGEX =
+  /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,128}$/;
 
 const SSO_PROVIDERS = [
   'google',
@@ -28,8 +33,12 @@ export class CreateUserDto {
 
   @IsNotEmpty()
   @IsString()
-  @MinLength(6)
-  @MaxLength(20)
+  @MinLength(8)
+  @MaxLength(128)
+  @Matches(PASSWORD_STRENGTH_REGEX, {
+    message:
+      'Mật khẩu 8–128 ký tự, phải có chữ hoa, số và ký tự đặc biệt (không chỉ chữ thường).',
+  })
   password: string;
 
   @IsOptional()
@@ -45,6 +54,6 @@ export class LoginDto {
   @IsNotEmpty()
   @IsString()
   @MinLength(6)
-  @MaxLength(20)
+  @MaxLength(128)
   password: string;
 }

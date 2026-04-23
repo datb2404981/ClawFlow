@@ -1,0 +1,22 @@
+# Sử dụng Python bản nhẹ (slim)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Cài đặt các công cụ cần thiết cho hệ thống
+RUN apt-get update && apt-get install -y gcc g++ && rm -rf /var/lib/apt/lists/*
+
+# Copy file danh sách thư viện
+COPY requirements.txt .
+
+# Cài đặt thư viện Python (LangGraph, Playwright...)
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy toàn bộ code AI
+COPY . .
+
+# Mở cổng 8000 cho AI Core
+EXPOSE 8000
+
+# Chạy server (ví dụ dùng FastAPI hoặc script python)
+CMD ["python", "main.py"]

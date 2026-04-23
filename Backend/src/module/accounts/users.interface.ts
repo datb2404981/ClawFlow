@@ -4,6 +4,8 @@
  */
 export interface IUser {
   _id: string;
+  /** UUID (v4) — khóa nghiệp vụ công khai, thuận mở rộng hệ thống */
+  publicId?: string;
   username: string;
   email: string;
   sso_provider?: string;

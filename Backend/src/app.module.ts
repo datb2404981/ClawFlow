@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -9,7 +10,11 @@ import { UsersModule } from './module/accounts/account.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      /** Chạy từ `Backend/` hoặc từ thư mục gốc monorepo đều tìm thấy `.env`. */
+      envFilePath: [
+        join(process.cwd(), '.env'),
+        join(process.cwd(), 'Backend', '.env'),
+      ],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],

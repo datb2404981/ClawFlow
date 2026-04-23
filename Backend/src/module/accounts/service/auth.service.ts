@@ -4,6 +4,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -203,6 +204,7 @@ export class AuthService {
         .filter(Boolean)
         .join(' ');
       doc = await this.userModel.create({
+        publicId: randomUUID(),
         username: `${email.split('@')[0]}_${Date.now().toString(36)}`,
         email,
         password: placeholderPassword,

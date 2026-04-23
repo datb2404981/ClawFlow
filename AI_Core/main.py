@@ -39,5 +39,7 @@ async def health_check():
 
 if __name__ == "__main__":
   post = int(os.getenv("PORT", 8000))
-  print(f"🚀 Server đang khởi chạy tại: http://127.0.0.1:{post}")
-  uvicorn.run("main:app", host="127.0.0.1", port=post, reload=True)
+  # 0.0.0.0: cần cho Docker / truy cập từ container hoặc máy khác
+  host = os.getenv("HOST", "0.0.0.0")
+  print(f"🚀 Server đang khởi chạy tại: http://{host}:{post}")
+  uvicorn.run("main:app", host=host, port=post, reload=True)

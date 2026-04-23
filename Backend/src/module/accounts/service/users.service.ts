@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { randomUUID } from 'crypto';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { Model } from 'mongoose';
 import { User } from '../schema/user.schema';
@@ -29,6 +30,7 @@ export class UsersService {
         ...createUserDto,
         email,
         password: hashedPassword,
+        publicId: randomUUID(),
       });
       return user.toJSON();
     } catch (e: unknown) {

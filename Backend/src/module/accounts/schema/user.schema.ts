@@ -1,8 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 
+/** `publicId` (UUID): định danh công khai / mở rộng multi-agent; `_id` Mongo giữ nội bộ. */
 @Schema({ timestamps: true })
 export class User {
+  @Prop({ required: true, unique: true, index: true })
+  publicId: string;
+
   @Prop({ required: true })
   username: string;
 

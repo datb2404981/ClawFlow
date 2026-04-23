@@ -20,6 +20,7 @@
    - Dùng Functional Component và React Hooks. Tuyệt đối KHÔNG dùng Class Component.
    - Luôn định nghĩa `interface` hoặc `type` cho Props và State.
    - Tách nhỏ UI thành các Component tái sử dụng (Atomic Design).
+   - **UI / Visual**: Mọi thay đổi giao diện Frontend phải tuân thủ `.cursor/DESIGN.md` (màu, typography, nút, spacing, shadow, các “Don’t”).
 2. **Backend (NestJS)**: Tuân thủ OOP, Dependency Injection, DTO, Strict Type.
 3. **AI_Core (Python)**: Dùng Type Hinting, Pydantic, PEP8.
 

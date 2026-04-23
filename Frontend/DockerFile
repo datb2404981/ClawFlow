@@ -1,0 +1,18 @@
+# Sử dụng Node.js bản 20
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+# Copy toàn bộ source code
+COPY . .
+
+# Mở cổng cho Frontend (Vite dùng 5173, Next.js dùng 3000)
+# Ở đây thầy ví dụ dùng cổng 3001 để tránh trùng với Backend
+EXPOSE 5173
+
+# Vite: --host để truy cập từ máy host qua map cổng Docker
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

@@ -16,9 +16,7 @@ const cookieParser: CookieParserFactory =
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
-  const port = Number(
-    config.get('PORT') ?? config.get('POST') ?? 8080,
-  );
+  const port = Number(config.get('PORT') ?? config.get('POST') ?? 8080);
 
   app.use(cookieParser());
 

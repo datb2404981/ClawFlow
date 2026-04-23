@@ -15,7 +15,8 @@ Thumbs.db
 .env
 .env.*
 # (Cho phép đẩy file .env.example lên để làm mẫu cho người khác)
-!.env.example 
+!.env.example
+!**/.env.example
 
 # ==========================================
 # 3. NESTJS BACKEND & FRONTEND (Node.js/TypeScript)
