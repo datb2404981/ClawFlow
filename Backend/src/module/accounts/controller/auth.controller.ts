@@ -9,7 +9,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AuthGuard } from '@nestjs/passport';
 import 'cookie-parser';
 import type { Request, Response } from 'express';
 import {
@@ -64,7 +63,6 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(AuthGuard('jwt'))
   @ResponseMessage('Đăng xuất thành công')
   logout(
     @User() user: IUser,

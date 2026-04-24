@@ -1,0 +1,12 @@
+# Chỉ cài phụ thuộc; mã nguồn + watch do volume mount ở docker-compose.dev.yml
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+EXPOSE 8080
+
+# compose.dev ghi đè: npm run start:dev
+CMD ["npm", "run", "start:dev"]

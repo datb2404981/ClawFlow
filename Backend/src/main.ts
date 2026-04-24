@@ -30,10 +30,14 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
-  app.useGlobalPipes(new ValidationPipe({
-      whitelist: true, // Tự động bỏ đi các field thừa
-      forbidNonWhitelisted: true, // Báo lỗi nếu gửi field linh tinh lên
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
   
   app.useGlobalInterceptors(new TransformInterceptor(app.get(Reflector)));
 

@@ -35,6 +35,10 @@ build/
 # Các file sinh ra trong quá trình test
 coverage/
 
+# Upload skill (Nest, lưu local)
+Backend/uploads/
+uploads/
+
 # ==========================================
 # 4. AI SERVICE (Python/FastAPI)
 # ==========================================

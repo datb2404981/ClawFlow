@@ -1,0 +1,26 @@
+# Gộp với bản mặc định: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# (chỉ backend chạy hot-reload, code từ ./Backend gắn vào /app)
+#
+# Dừng bản build prod trước: docker compose stop backend
+# Cổng 8080 giống cũ. Rebuild: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build backend
+
+services:
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: DockerFile.dev
+    image: openclaw-backend-dev
+    container_name: openclaw_backend_dev
+    volumes:
+      - ./Backend:/app
+      - backend_nodemodules:/app/node_modules
+    environment:
+      # Docker Desktop (macOS/Win): cần polling để Nest nhận thay đổi file trên mount
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      NODE_ENV: development
+    command: sh -c "npm install && npm run start:dev"
+    # env_file, ports, network kế thừa từ docker-compose.yml (merge cùng service backend)
+
+volumes:
+  backend_nodemodules:
