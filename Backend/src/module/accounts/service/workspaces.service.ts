@@ -49,11 +49,31 @@ export class WorkspacesService {
     await this.workspaceModel.updateMany(q, { $set: { is_default: false } });
   }
 
+  /**
+   * Mỗi user một workspace: tạo bản mặc định nếu chưa có (dùng khi liệt kê lần đầu / user cũ).
+   */
+  private async ensureDefaultWorkspaceForUser(userId: string): Promise<void> {
+    const owner = this.toObjectId(userId);
+    const n = await this.workspaceModel.countDocuments({ user_id: owner });
+    if (n > 0) {
+      return;
+    }
+    await this.workspaceModel.create({
+      user_id: owner,
+      name: 'Workspace',
+      is_default: true,
+    });
+  }
+
   async create(
     userId: string,
     dto: CreateWorkspacesDto,
   ): Promise<Workspace> {
     const owner = this.toObjectId(userId);
+    const existing = await this.workspaceModel.countDocuments({ user_id: owner });
+    if (existing >= 1) {
+      throw new ConflictException('Mỗi tài khoản chỉ có một workspace');
+    }
     if (dto.is_default) {
       await this.clearDefaultForUser(owner);
     }
@@ -80,6 +100,7 @@ export class WorkspacesService {
   }
 
   async findAllByUser(userId: string): Promise<Workspace[]> {
+    await this.ensureDefaultWorkspaceForUser(userId);
     const owner = this.toObjectId(userId);
     return this.workspaceModel
       .find({ user_id: owner })
@@ -145,13 +166,11 @@ export class WorkspacesService {
     }
   }
 
-  async remove(userId: string, workspaceId: string) {
-    const owner = this.toObjectId(userId);
-    const id = this.toObjectId(workspaceId);
-    const res = await this.workspaceModel.deleteOne({ _id: id, user_id: owner });
-    if (res.deletedCount === 0) {
-      throw new NotFoundException('Không tìm thấy workspace');
-    }
-    return "OK";
+  remove(userId: string, workspaceId: string): never {
+    this.toObjectId(userId);
+    this.toObjectId(workspaceId);
+    throw new BadRequestException(
+      'Mỗi tài khoản chỉ có một workspace, không hỗ trợ xóa.',
+    );
   }
 }

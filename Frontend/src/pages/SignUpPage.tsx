@@ -184,7 +184,7 @@ export function SignUpPage() {
                 Tạo tài khoản
               </h1>
               <p className={authPageHeroSubtitleClass}>
-                Gia nhập không gian làm việc AI — triển khai đặc vụ trong một
+                Gia nhập không gian làm việc AI — triển khai agent trong một
                 quy trình.
               </p>
             </header>

@@ -1,0 +1,11 @@
+[
+  {
+    "is_system": true,
+    "name": "Tên skill hệ thống (hiển thị trong thư viện)",
+    "description": "Mô tả ngắn 1–2 câu cho thẻ kỹ năng (tùy chọn).",
+    "content": "Nội dung đầy đủ: prompt, quy tắc, quy trình cho agent (bắt buộc, không rỗng).",
+    "visibility": "workspace",
+    "icon": "doc",
+    "source_url": "https://optional-doc-url"
+  }
+]

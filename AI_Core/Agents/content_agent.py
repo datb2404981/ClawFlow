@@ -1,10 +1,12 @@
 # Agents/content_agent.py
 from langchain.chat_models import init_chat_model
+from ollama_config import OLLAMA_BASE_URL
 from Tools.tool_content import *
 # Model
 _model = init_chat_model(
   model="llama3.1",
   model_provider="ollama",
+  base_url=OLLAMA_BASE_URL,
   temperature=0.7
 )
 

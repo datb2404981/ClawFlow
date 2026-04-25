@@ -3,6 +3,17 @@
 #
 # Mongo trong Docker (tùy chọn): docker compose --profile local-db up -d mongodb
 # rồi trong Backend/.env đặt: MONGO_URI=mongodb://mongodb:27017/clawflow
+#
+# Code từ máy → container (sửa file là thấy, giống nhau cho cả ba):
+#   • backend:  mount ./Backend + `nest start --watch` (DockerFile.dev + node_modules volume)
+#   • ai_core:  mount ./AI_Core + uvicorn `reload=True` trong main.py
+#   • frontend: mount ./Frontend + Vite (node_modules volume)
+# Image prod chỉ build (dist trong image), không mount: dùng `DockerFile` + `npm run start:prod` — tách file compose riêng hoặc `docker build -f Backend/DockerFile` khi deploy.
+# Ollama trên host (mặc định cổng 11434): AI_Core dùng OLLAMA_BASE_URL dưới đây; chạy Python trên host
+# thì 127.0.0.1:11434 ổn, không cần set thêm.
+# Backend trong Docker: AI_CORE_BASE_URL phải là tên service (ai_core), không dùng 127.0.0.1.
+# AI_Core load graph + Mongo: MONGO_URI trong Backend/.env phải tới được từ container (Atlas + IP allow,
+# hoặc `mongodb://mongodb:27017/...` khi chạy `docker compose --profile local-db up -d mongodb`).
 
 services:
   mongodb:
@@ -20,15 +31,25 @@ services:
   backend:
     build:
       context: ./Backend
-      dockerfile: DockerFile
-    container_name: openclaw_backend
+      dockerfile: DockerFile.dev
+    image: openclaw-backend-dev
+    container_name: openclaw_backend_dev
     ports:
       - '8080:8080'
     env_file:
       - ./Backend/.env
     environment:
-      # Chỉ bổ sung khi cần — không đặt GOOGLE_* / MONGO_URI rỗng ở đây (sẽ ghi đè Backend/.env).
       JWT_SECRET: ${JWT_SECRET:-clawflow-docker-dev-only-change-me}
+      AI_CORE_BASE_URL: http://ai_core:8000
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./Backend:/app
+      - backend_nodemodules:/app/node_modules
+    command: sh -c "npm install && npm run start:dev"
+    depends_on:
+      - ai_core
     networks:
       - openclaw_network
 
@@ -41,6 +62,16 @@ services:
       - '8000:8000'
     env_file:
       - ./Backend/.env
+    environment:
+      # Backend/.env thường có PORT=8080 (Nest). AI_Core dùng cùng file → ghi đè, không dùng 8080
+      # trong container này; map compose là 8000:8000 và backend gọi http://ai_core:8000
+      PORT: '8000'
+      # Uvicorn dùng watchfiles; trên bind-mount (macOS/Windows) polling ổn định hơn
+      WATCHFILES_FORCE_POLLING: 'true'
+      # Gọi Ollama cài trên macOS/Windows (ngoài container)
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    volumes:
+      - ./AI_Core:/app
     networks:
       - openclaw_network
 
@@ -51,6 +82,11 @@ services:
     container_name: openclaw_frontend
     ports:
       - '5173:5173'
+    environment:
+      # Trong mạng compose, Vite proxy gọi backend qua service name
+      VITE_BACKEND_HOST: backend
+      VITE_BACKEND_PORT: '8080'
+      CHOKIDAR_USEPOLLING: 'true'
     volumes:
       - ./Frontend:/app
       - /app/node_modules
@@ -65,3 +101,4 @@ networks:
 
 volumes:
   mongo_data:
+  backend_nodemodules:

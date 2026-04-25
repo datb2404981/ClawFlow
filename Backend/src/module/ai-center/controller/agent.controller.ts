@@ -1,14 +1,25 @@
-import { Body, Controller, Get, Post, Put, Param, Delete } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Param, Delete, Query } from '@nestjs/common';
 import { AgentsService } from '../service/agents.service';
 import { ResponseMessage, User } from 'src/common/decorator/decorators';
 import type { IUser } from 'src/module/accounts/users.interface';
 import { CreateAgentDto } from '../dto/create-agent.dto';
 import { Agents } from '../schema/ai-center.schema';
+import { ListAgentsQueryDto } from '../dto/list-agents-query.dto';
 import { UpdateAgentDto } from '../dto/update-agent.dto';
+import { RefineSystemPromptDto } from '../dto/refine-system-prompt.dto';
 
 @Controller('agents')
 export class AgentsController {
   constructor(private readonly agentsService: AgentsService) {}
+
+  @Get()
+  @ResponseMessage('Danh sách trợ lý theo workspace')
+  findByWorkspace(
+    @User() user: IUser,
+    @Query() q: ListAgentsQueryDto,
+  ) {
+    return this.agentsService.findByWorkspace(user._id, q.workspace_id);
+  }
 
   @Get(':id')
   findAgentById(@Param('id') id: string): Promise<Agents> {
@@ -38,5 +49,11 @@ export class AgentsController {
   @ResponseMessage('Xóa trợ lý thành công')
   deleteAgent(@Param('id') id: string){
     return this.agentsService.deleteAgent(id);
+  }
+
+  @Post('/refine-system-prompt')
+  @ResponseMessage('Tối ưu hệ thống prompt thành công')
+  refineSystemPrompt(@Body() dto: RefineSystemPromptDto) {
+    return this.agentsService.refineSystemPrompt(dto.systemPromptOfUser);
   }
 }

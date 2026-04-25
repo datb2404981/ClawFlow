@@ -5,6 +5,8 @@ function resolveApiBase(): string {
   if (full) return full.replace(/\/$/, '')
   const host = import.meta.env.VITE_API_BASE_URL?.trim()
   if (host) return `${host.replace(/\/$/, '')}/api/v1`
+  /** Dev: Vite proxy `vite.config` → cùng origin, tránh CORS. */
+  if (import.meta.env.DEV) return '/api/v1'
   return 'http://localhost:8080/api/v1'
 }
 
@@ -17,7 +19,8 @@ if (import.meta.env.DEV && /:8000(\/|$)/.test(API_BASE)) {
   )
 }
 
-const TOKEN_KEY = 'openclaw_access_token'
+export const ACCESS_TOKEN_KEY = 'openclaw_access_token'
+const TOKEN_KEY = ACCESS_TOKEN_KEY
 
 export const api = axios.create({
   baseURL: API_BASE,

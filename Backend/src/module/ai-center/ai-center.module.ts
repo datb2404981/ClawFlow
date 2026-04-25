@@ -12,6 +12,8 @@ import { TasksController } from './controller/tasks.controller';
 import { TasksService } from './service/tasks.service';
 import { SkillTemplatesService } from './service/skill-templates.service';
 import { SkillTemplatesController } from './controller/skill-templates.controller';
+import { AdminSeedGuard } from 'src/common/guard/admin-seed.guard';
+import { AdminSeedSkillTemplatesController } from './controller/admin-seed-skill-templates.controller';
 
 @Module({
   imports: [
@@ -22,7 +24,12 @@ import { SkillTemplatesController } from './controller/skill-templates.controlle
       { name: SkillTemplate.name, schema: SkillTemplateSchema },
     ]),
   ],
-  controllers: [AgentsController, SkillTemplatesController, TasksController],
-  providers: [AgentsService, SkillTemplatesService, TasksService],
+  controllers: [
+    AgentsController,
+    SkillTemplatesController,
+    AdminSeedSkillTemplatesController,
+    TasksController,
+  ],
+  providers: [AgentsService, SkillTemplatesService, TasksService, AdminSeedGuard],
 })
 export class AiCenterModule {}

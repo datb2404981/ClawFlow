@@ -1,4 +1,4 @@
-# Chỉ cài phụ thuộc; mã nguồn + watch do volume mount ở docker-compose.dev.yml
+# Chỉ cài phụ thuộc; mã nguồn + watch: `docker compose` service `backend` (docker-compose.yml)
 FROM node:20-alpine
 
 WORKDIR /app

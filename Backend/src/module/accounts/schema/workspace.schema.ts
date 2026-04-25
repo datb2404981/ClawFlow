@@ -38,7 +38,7 @@ export class Workspace {
   })
   status: 'active' | 'archived';
 
-  /** Workspace mặc định khi user vào app (một user nên có tối đa một) */
+  /** Mặc định: mỗi user đúng một workspace (vẫn dùng cờ này khi cần sort/UX) */
   @Prop({ default: false, index: true })
   is_default: boolean;
 

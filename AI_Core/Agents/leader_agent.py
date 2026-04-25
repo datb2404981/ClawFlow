@@ -1,11 +1,13 @@
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import ToolMessage, SystemMessage
+from ollama_config import OLLAMA_BASE_URL
 from Tools.tool_browser import tool_browsers, tool_by_name
 
 # Khởi tạo model và gắn tool trực tiếp
 _model = init_chat_model(
     model="llama3.1",
     model_provider="ollama",
+    base_url=OLLAMA_BASE_URL,
     temperature=0.3,
 )
 leader_agent = _model.bind_tools(tool_browsers)

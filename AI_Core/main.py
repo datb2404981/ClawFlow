@@ -12,7 +12,7 @@ load_dotenv()
 
 app = FastAPI(
   title = "ClawFlow AI Core",
-  description = "Lõi AI xử lý Đa phương thức và Đặc vụ cho dự án ClawFlow",
+  description = "Lõi AI xử lý đa phương thức và agent cho dự án ClawFlow",
   version = "1.0.0",
 )
 
@@ -29,6 +29,10 @@ app.add_middleware(
 # Móc API Chat từ file chat.py vào Server chính
 from Api.chat import router as chat_router
 app.include_router(chat_router, prefix="/api/v1", tags=["Chat"])
+
+# Móc API Refine System Prompt từ file refine_system_prompt.py vào Server chính
+from Api.refine_system_prompt import router as refine_system_prompt_router
+app.include_router(refine_system_prompt_router, prefix="/api/v1", tags=["Refine System Prompt"])
 
 @app.get('/')
 async def health_check():
