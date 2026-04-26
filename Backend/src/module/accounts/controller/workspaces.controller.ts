@@ -54,7 +54,7 @@ export class WorkspacesController {
 
   @Delete(':id')
   @ResponseMessage('Xóa workspace thành công')
-  async remove(@User() user: IUser, @Param('id') id: string): Promise<void> {
-    await this.workspacesService.remove(user._id, id);
+  remove(@User() user: IUser, @Param('id') id: string): void {
+    this.workspacesService.remove(user._id, id);
   }
 }

@@ -3,6 +3,8 @@
  * Khoảng cách chữ: `sectionHeading` / `sidebarFlyout*` trong `WorkspaceAppLayout.tsx`.
  */
 export const SIDEBAR = {
+  /** Chức năng chuyển / cài đặt workspace (header menu). */
+  workspaceManage: 'QUẢN LÝ WORKSPACE',
   agents: 'AGENT',
   taskHistory: 'LỊCH SỬ TASK',
 } as const

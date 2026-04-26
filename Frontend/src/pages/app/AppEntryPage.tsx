@@ -14,7 +14,18 @@ export function AppEntryPage() {
         const list = await fetchWorkspaces()
         if (c) return
         if (list.length) {
-          nav(`/app/w/${list[0]!._id}/dashboard`, { replace: true })
+          const w = list[0]!
+          const stillDefault =
+            w.name === 'Workspace' &&
+            !String(w.description ?? '').trim() &&
+            !String(w.slug ?? '').trim()
+          const skipOnboarding =
+            localStorage.getItem('clawflow_skip_ws_onboarding') === '1'
+          if (stillDefault && !skipOnboarding) {
+            nav(`/app/w/${w._id}/settings/workspace`, { replace: true })
+          } else {
+            nav(`/app/w/${w._id}/dashboard`, { replace: true })
+          }
         } else {
           setErr('Hệ thống không tạo được workspace cho tài khoản này')
           setPhase('err')

@@ -58,23 +58,21 @@ export class Workspace {
 
   @Prop({
     type: [TaskLane],
-    default: () => [
-      { key: 'slot_1', title: 'Công việc 1', order: 0 },
-      { key: 'slot_2', title: 'Công việc 2', order: 1 },
-      { key: 'slot_3', title: 'Công việc 3', order: 2 },
-    ],
+    default: [],
   })
   task_lanes: TaskLane[];
+
+  /** Mã hex màu chủ đạo (ví dụ #2563eb) — branding */
+  @Prop()
+  brand_color?: string;
+
+  /** Logo / avatar workspace: data URL hoặc URL tuyệt đối */
+  @Prop()
+  logo_url?: string;
 
   /** Ref tới collection cấu hình agent (tạo `AgentConfig` schema sau; tạm ref bằng tên) */
   @Prop({ type: Types.ObjectId, ref: 'AgentConfig' })
   agent_config_id?: Types.ObjectId;
-
-  @Prop({ default: true })
-  memory_enabled: boolean;
-
-  @Prop({ type: String, enum: ['user', 'workspace'], default: 'workspace' })
-  memory_scope: 'user' | 'workspace';
 
   createdAt: Date;
   updatedAt: Date;

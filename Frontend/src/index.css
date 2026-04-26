@@ -32,6 +32,52 @@
   --color-inverse-text: #ffffff;
 
   --shadow-apple-card: 3px 5px 30px 0 rgb(0 0 0 / 0.22);
+
+  /* Trang cài đặt (mẫu AI Memory / App Settings) */
+  --color-cf-surface: #f8f9fa;
+  --color-cf-on-surface: #191c1d;
+  --color-cf-on-surface-variant: #434656;
+  --color-cf-primary: #003ec7;
+  --color-cf-on-primary: #ffffff;
+  --color-cf-primary-container: #0052ff;
+  --color-cf-surface-container-low: #f3f4f5;
+  --color-cf-surface-container: #edeeef;
+  --color-cf-surface-container-high: #e1e3e4;
+  --color-cf-surface-container-highest: #e1e3e4;
+  --color-cf-surface-container-lowest: #ffffff;
+  --color-cf-secondary: #4459a8;
+  --color-cf-secondary-container: #95aafe;
+  --color-cf-outline: #737688;
+  --color-cf-outline-variant: #c3c5d9;
+  --color-cf-error: #ba1a1a;
+  --color-cf-on-error: #ffffff;
+  --color-cf-error-container: #ffdad6;
+  --color-cf-on-error-container: #93000a;
+  --font-cf-head: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-cf-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-cf-label: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --shadow-cf-ambient: 0 20px 40px rgba(25, 28, 29, 0.04);
+}
+
+/* Cài đặt workspace: gradient nút hành động (mẫu AI Memory) */
+.bg-cf-glass-gradient {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 62, 199, 0.95) 0%,
+    rgba(0, 82, 255, 0.9) 100%
+  );
+}
+
+html {
+  /* Ẩn thanh cuộn (vẫn cuộn bằng bánh xe / cảm ứng / bàn phím) */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+html::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+  background: transparent;
 }
 
 body {
@@ -43,6 +89,26 @@ body {
   background-color: var(--color-oc-white);
   color: var(--color-body);
   -webkit-font-smoothing: antialiased;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+body::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
+/* Các vùng cuộn nội bộ (overflow-auto / sidebar / panel) cũng ẩn thanh cuộn */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+  background: transparent;
 }
 
 #root {

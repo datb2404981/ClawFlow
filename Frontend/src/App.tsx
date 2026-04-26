@@ -4,6 +4,7 @@ import {
   Outlet,
   Route,
   Routes,
+  useLocation,
   useParams,
 } from 'react-router-dom'
 import { AppEntryPage } from './pages/app/AppEntryPage'
@@ -11,6 +12,8 @@ import { DashboardPage } from './pages/app/DashboardPage'
 import { AgentBuilderPage } from './pages/app/AgentBuilderPage'
 import { TaskNewPage } from './pages/app/TaskNewPage'
 import { TaskWorkspacePage } from './pages/app/TaskWorkspacePage'
+import { AppSettingsPage } from './pages/app/settings/AppSettingsPage'
+import { WorkspaceManagePage } from './pages/app/settings/WorkspaceManagePage'
 import { LoginPage } from './pages/LoginPage'
 import { SignUpPage } from './pages/SignUpPage'
 import { WorkspaceAppRoute } from './routes/WorkspaceAppRoute'
@@ -30,6 +33,30 @@ function AgentBuilderById() {
   return <AgentBuilderPage key={agentId} />
 }
 
+function RedirectSettingsToApp() {
+  const { workspaceId } = useParams()
+  return <Navigate to={`/app/w/${workspaceId}/settings/app`} replace />
+}
+
+function RedirectAiMemoryToWorkspace() {
+  const { workspaceId } = useParams()
+  return (
+    <Navigate to={`/app/w/${workspaceId}/settings/workspace`} replace />
+  )
+}
+
+/** Remount khi tạo mới vs chỉnh sửa / đổi workspace — tránh reset state bằng setState trong useEffect. */
+function WorkspaceSettingsWorkspacePage() {
+  const { workspaceId = '' } = useParams()
+  const location = useLocation()
+  const isNew = location.pathname.endsWith('/settings/workspace/new')
+  return (
+    <WorkspaceManagePage
+      key={isNew ? `ws-new-${workspaceId}` : `ws-${workspaceId}`}
+    />
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -43,6 +70,23 @@ export default function App() {
             <Route
               index
               element={<Navigate to="dashboard" replace />}
+            />
+            <Route
+              path="settings"
+              element={<RedirectSettingsToApp />}
+            />
+            <Route path="settings/app" element={<AppSettingsPage />} />
+            <Route
+              path="settings/workspace/new"
+              element={<WorkspaceSettingsWorkspacePage />}
+            />
+            <Route
+              path="settings/workspace"
+              element={<WorkspaceSettingsWorkspacePage />}
+            />
+            <Route
+              path="settings/ai-memory"
+              element={<RedirectAiMemoryToWorkspace />}
             />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route

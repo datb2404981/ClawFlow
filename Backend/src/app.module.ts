@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './module/accounts/account.module';
 import { AiCenterModule } from './module/ai-center/ai-center.module';
+import { WorkspaceDocumentsModuleModule } from './module/workspace-documents-module/workspace-documents-module.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AiCenterModule } from './module/ai-center/ai-center.module';
     }),
     UsersModule,
     AiCenterModule,
+    WorkspaceDocumentsModuleModule,
   ],
   controllers: [AppController],
   providers: [AppService],

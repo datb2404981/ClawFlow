@@ -7,6 +7,10 @@ import { UsersService } from './service/users.service';
 import { UsersController } from './controller/users.controller';
 import { User, UserSchema } from './schema/user.schema';
 import { Workspace, WorkspaceSchema } from './schema/workspace.schema';
+import {
+  WorkspaceKnowledgeFile,
+  WorkspaceKnowledgeFileSchema,
+} from './schema/workspace-knowledge-file.schema';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthController } from './controller/auth.controller';
 import { AuthService } from './service/auth.service';
@@ -16,12 +20,18 @@ import { getJwtAccessSecret } from 'src/common/config/jwt-access-secret';
 import { JwtAuthGuard } from 'src/common/guard/jwt-auth.guard';
 import { WorkspacesController } from './controller/workspaces.controller';
 import { WorkspacesService } from './service/workspaces.service';
+import { WorkspaceKnowledgeController } from './controller/workspace-knowledge.controller';
+import { WorkspaceKnowledgeService } from './service/workspace-knowledge.service';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Workspace.name, schema: WorkspaceSchema },
+      {
+        name: WorkspaceKnowledgeFile.name,
+        schema: WorkspaceKnowledgeFileSchema,
+      },
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -33,13 +43,19 @@ import { WorkspacesService } from './service/workspaces.service';
       inject: [ConfigService],
     }),
   ],
-  controllers: [UsersController, AuthController, WorkspacesController],
+  controllers: [
+    UsersController,
+    AuthController,
+    WorkspacesController,
+    WorkspaceKnowledgeController,
+  ],
   providers: [
     UsersService,
     AuthService,
     JwtStrategy,
     GoogleStrategy,
     WorkspacesService,
+    WorkspaceKnowledgeService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
   exports: [

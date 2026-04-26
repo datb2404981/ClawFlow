@@ -24,6 +24,47 @@ export class WorkspacesService {
     return new Types.ObjectId(id);
   }
 
+  /** Slug URL — tự sinh từ tên, không lấy từ client. */
+  private slugifyName(raw: string): string {
+    const t = raw
+      .trim()
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return t || 'workspace';
+  }
+
+  private async ensureUniqueSlugForUser(
+    userId: Types.ObjectId,
+    base: string,
+    exceptWorkspaceId?: Types.ObjectId,
+  ): Promise<string> {
+    const maxLen = 80;
+    const root = (base || 'workspace').toLowerCase().slice(0, maxLen);
+    for (let n = 0; n < 200; n++) {
+      const trySlug = (n === 0 ? root : `${root}-${n}`).slice(0, maxLen);
+      const q = {
+        user_id: userId,
+        slug: trySlug,
+      };
+      if (exceptWorkspaceId) {
+        const conflict = await this.workspaceModel
+          .findOne({ ...q, _id: { $ne: exceptWorkspaceId } })
+          .lean()
+          .exec();
+        if (!conflict) return trySlug;
+      } else {
+        const conflict = await this.workspaceModel.findOne(q).lean().exec();
+        if (!conflict) return trySlug;
+      }
+    }
+    return `${root}-${Date.now()}`.slice(0, maxLen);
+  }
+
   private normalizeLanes(
     lanes: { key: string; title: string; order?: number }[] | undefined,
   ): { key: string; title: string; order: number }[] | undefined {
@@ -84,10 +125,11 @@ export class WorkspacesService {
       is_default: dto.is_default ?? false,
     };
     if (dto.description !== undefined) createPayload.description = dto.description;
-    if (dto.slug !== undefined) createPayload.slug = dto.slug;
-    if (dto.memory_enabled !== undefined) createPayload.memory_enabled = dto.memory_enabled;
-    if (dto.memory_scope !== undefined) createPayload.memory_scope = dto.memory_scope;
+    const baseSlug = this.slugifyName(dto.name);
+    createPayload.slug = await this.ensureUniqueSlugForUser(owner, baseSlug);
     if (task_lanes !== undefined) createPayload.task_lanes = task_lanes;
+    if (dto.brand_color !== undefined) createPayload.brand_color = dto.brand_color;
+    if (dto.logo_url !== undefined) createPayload.logo_url = dto.logo_url;
     try {
       const doc = await this.workspaceModel.create(createPayload);
       return doc.toJSON() as unknown as Workspace;
@@ -134,14 +176,17 @@ export class WorkspacesService {
     }
     const task_lanes = this.normalizeLanes(dto.task_lanes);
     const $set: Record<string, unknown> = {};
-    if (dto.name !== undefined) $set.name = dto.name;
+    if (dto.name !== undefined) {
+      $set.name = dto.name;
+      const base = this.slugifyName(dto.name);
+      $set.slug = await this.ensureUniqueSlugForUser(owner, base, id);
+    }
     if (dto.description !== undefined) $set.description = dto.description;
-    if (dto.slug !== undefined) $set.slug = dto.slug;
     if (dto.is_default !== undefined) $set.is_default = dto.is_default;
-    if (dto.memory_enabled !== undefined) $set.memory_enabled = dto.memory_enabled;
-    if (dto.memory_scope !== undefined) $set.memory_scope = dto.memory_scope;
     if (task_lanes !== undefined) $set.task_lanes = task_lanes;
     if (dto.status !== undefined) $set.status = dto.status;
+    if (dto.brand_color !== undefined) $set.brand_color = dto.brand_color;
+    if (dto.logo_url !== undefined) $set.logo_url = dto.logo_url;
     if (Object.keys($set).length === 0) {
       return this.findOne(userId, workspaceId);
     }

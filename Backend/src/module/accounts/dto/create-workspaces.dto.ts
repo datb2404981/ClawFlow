@@ -2,10 +2,11 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
-  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { TaskLaneDto } from 'src/module/ai-center/dto/task-lane.dto';
@@ -20,20 +21,8 @@ export class CreateWorkspacesDto {
   description?: string;
 
   @IsOptional()
-  @IsString()
-  slug?: string;
-
-  @IsOptional()
   @IsBoolean()
   is_default?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  memory_enabled?: boolean;
-
-  @IsOptional()
-  @IsIn(['user', 'workspace'])
-  memory_scope?: 'user' | 'workspace';
 
   @IsOptional()
   @IsArray()
@@ -41,4 +30,17 @@ export class CreateWorkspacesDto {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- class-transformer cần factory trả về class
   @Type(() => TaskLaneDto)
   task_lanes?: TaskLaneDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  @Matches(/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/, {
+    message: 'brand_color phải là mã hex (#RGB hoặc #RRGGBB)',
+  })
+  brand_color?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(400_000)
+  logo_url?: string;
 }

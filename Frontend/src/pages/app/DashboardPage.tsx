@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { BookOpen, Workflow } from 'lucide-react'
 import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
@@ -5,6 +6,11 @@ import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
 export function DashboardPage() {
   const { workspaceId, workspaceName } = useOutletContext<WsOutlet>()
   const base = `/app/w/${workspaceId}`
+
+  useEffect(() => {
+    // Không bắt mỗi lần đăng nhập phải qua cấu hình nếu user đã vào dashboard.
+    localStorage.setItem('clawflow_skip_ws_onboarding', '1')
+  }, [])
 
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center px-6 py-8">
