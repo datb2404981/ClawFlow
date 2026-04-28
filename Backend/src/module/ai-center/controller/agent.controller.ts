@@ -47,8 +47,8 @@ export class AgentsController {
 
   @Delete(':id')
   @ResponseMessage('Xóa trợ lý thành công')
-  deleteAgent(@Param('id') id: string){
-    return this.agentsService.deleteAgent(id);
+  deleteAgent(@User() user: IUser, @Param('id') id: string) {
+    return this.agentsService.deleteAgent(user._id, id);
   }
 
   @Post('/refine-system-prompt')

@@ -22,6 +22,8 @@
     "seed:system-skills:clawflow-builtin": "ts-node -r tsconfig-paths/register scripts/seed-system-skill-templates.ts --clawflow-builtin"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1037.0",
+    "@napi-rs/canvas": "^0.1.56",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
@@ -30,18 +32,25 @@
     "@nestjs/mongoose": "^11.0.4",
     "@nestjs/passport": "11.0.5",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-socket.io": "^11.1.19",
+    "@nestjs/websockets": "^11.1.19",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
+    "mammoth": "^1.12.0",
     "mongoose": "^9.5.0",
     "multer": "^2.1.1",
     "passport": "0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "4.0.1",
     "passport-local": "1.0.0",
+    "pdf-parse": "^1.1.4",
+    "pdfjs-dist": "^4.4.168",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "socket.io": "^4.8.3",
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -58,6 +67,7 @@
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-local": "^1.0.38",
+    "@types/pdf-parse": "^1.1.5",
     "@types/supertest": "^6.0.2",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",

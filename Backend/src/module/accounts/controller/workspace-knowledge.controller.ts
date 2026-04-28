@@ -9,17 +9,11 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { memoryStorage } from 'multer';
 import type { Express } from 'express';
 import { ResponseMessage, User } from 'src/common/decorator/decorators';
 import type { IUser } from '../users.interface';
 import { WorkspaceKnowledgeService } from '../service/workspace-knowledge.service';
-
-const uploadRoot = (workspaceId: string) =>
-  join(process.cwd(), 'uploads', 'workspace-knowledge', workspaceId);
 
 @Controller('workspaces/:workspaceId/knowledge')
 export class WorkspaceKnowledgeController {
@@ -34,19 +28,8 @@ export class WorkspaceKnowledgeController {
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (req, _file, cb) => {
-          const ws = (req.params as { workspaceId: string }).workspaceId;
-          const dir = uploadRoot(ws);
-          mkdirSync(dir, { recursive: true });
-          cb(null, dir);
-        },
-        filename: (_req, file, cb) => {
-          const ex = (extname(file.originalname) || '').toLowerCase() || '.bin';
-          cb(null, randomUUID() + ex);
-        },
-      }),
-      limits: { fileSize: 20 * 1024 * 1024 },
+      storage: memoryStorage(),
+      limits: { fileSize: 100 * 1024 * 1024 },
     }),
   )
   @ResponseMessage('Tải lên thành công')

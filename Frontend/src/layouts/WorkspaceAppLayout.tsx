@@ -39,9 +39,10 @@ import {
   fetchWorkspaces,
   type Workspace,
 } from '../api/workspaces'
-import { fetchAgents, type Agent } from '../api/agents'
+import { deleteAgent, fetchAgents, type Agent } from '../api/agents'
 import { fetchTasks, type Task, type TaskStatus } from '../api/tasks'
 import { BRAND_TAGLINE, SIDEBAR } from '../navigation/sidebarNav'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 const subIcon = { className: 'h-4 w-4 shrink-0', strokeWidth: 1.75 as const }
 
@@ -259,6 +260,20 @@ export function WorkspaceAppLayout() {
   const [pendingSectionScroll, setPendingSectionScroll] = useState<
     null | 'search' | 'agents' | 'tasks'
   >(null)
+  const [wsMenuNotice, setWsMenuNotice] = useState<{
+    tone: 'error' | 'success'
+    text: string
+  } | null>(null)
+  const [wsDeleteTarget, setWsDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [wsDeleteLoading, setWsDeleteLoading] = useState(false)
+  const [agentDeleteTarget, setAgentDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [agentDeleteLoading, setAgentDeleteLoading] = useState(false)
   /** Mở từ icon rail (hoặc tương đương): nhấn mạnh đúng block search / agents / tasks khi chưa có agentId–taskId trên URL. */
   const [sidebarSectionFocus, setSidebarSectionFocus] = useState<
     null | 'search' | 'agents' | 'tasks'
@@ -492,6 +507,12 @@ export function WorkspaceAppLayout() {
     }
   }, [accountMenuOpen])
 
+  useEffect(() => {
+    if (!wsMenuNotice) return
+    const t = window.setTimeout(() => setWsMenuNotice(null), 7000)
+    return () => window.clearTimeout(t)
+  }, [wsMenuNotice])
+
   const wname = ws?.name ?? 'Workspace'
   const authProfile = useMemo(() => readAuthProfileFromToken(), [])
   const closeWorkspaceMenu = () => {
@@ -510,16 +531,38 @@ export function WorkspaceAppLayout() {
     navigate('/login', { replace: true })
   }
 
-  const handleDeleteWorkspace = async (id: string) => {
-    if (!window.confirm('Xoá workspace này? Dữ liệu liên quan sẽ bị ảnh hưởng. Thao tác không hoàn tác.')) {
-      return
+  const runDeleteAgent = async () => {
+    if (!agentDeleteTarget) return
+    const { id: deletedId } = agentDeleteTarget
+    setAgentDeleteLoading(true)
+    try {
+      await deleteAgent(deletedId)
+      setAgentDeleteTarget(null)
+      refresh()
+      if (agentId === deletedId) {
+        navigate(`${base}/dashboard`, { replace: true })
+      }
+    } catch (err) {
+      setWsMenuNotice({
+        tone: 'error',
+        text: getApiErrorMessage(err, 'Không xoá được agent.'),
+      })
+    } finally {
+      setAgentDeleteLoading(false)
     }
+  }
+
+  const runDeleteWorkspace = async () => {
+    if (!wsDeleteTarget) return
+    const { id } = wsDeleteTarget
+    setWsDeleteLoading(true)
     setWsRowMenu(null)
     setWorkspaceMenuOpen(false)
     try {
       await deleteWorkspace(id)
       const list = await fetchWorkspaces()
       setWorkspaceList(list)
+      setWsDeleteTarget(null)
       if (id === workspaceId) {
         if (list[0]) {
           navigate(`/app/w/${list[0]._id}/dashboard`, { replace: true })
@@ -528,7 +571,12 @@ export function WorkspaceAppLayout() {
         }
       }
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Không xoá được workspace.'))
+      setWsMenuNotice({
+        tone: 'error',
+        text: getApiErrorMessage(err, 'Không xoá được workspace.'),
+      })
+    } finally {
+      setWsDeleteLoading(false)
     }
   }
 
@@ -547,7 +595,10 @@ export function WorkspaceAppLayout() {
       setWorkspaceList(list)
       navigate(`/app/w/${n._id}/dashboard`, { replace: true })
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Không tạo được workspace.'))
+      setWsMenuNotice({
+        tone: 'error',
+        text: getApiErrorMessage(err, 'Không tạo được workspace.'),
+      })
     } finally {
       setCreateWsSaving(false)
     }
@@ -850,6 +901,44 @@ export function WorkspaceAppLayout() {
 
   return (
     <div className="flex h-svh min-h-0 overflow-hidden bg-slate-50/90 text-slate-900">
+      {wsMenuNotice && (
+        <div
+          role="alert"
+          className={[
+            'fixed left-1/2 top-3 z-[250] flex w-[min(32rem,calc(100%-1.5rem))] -translate-x-1/2 items-start gap-3 rounded-xl border px-3.5 py-3 text-sm shadow-lg',
+            wsMenuNotice.tone === 'error'
+              ? 'border-rose-200/90 bg-rose-50/95 text-rose-950'
+              : 'border-emerald-200/90 bg-emerald-50/95 text-emerald-950',
+          ].join(' ')}
+        >
+          {wsMenuNotice.tone === 'error' ? (
+            <AlertCircle
+              className="mt-0.5 h-4 w-4 shrink-0 text-rose-600"
+              strokeWidth={2}
+              aria-hidden
+            />
+          ) : (
+            <span
+              className="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500"
+              aria-hidden
+            />
+          )}
+          <p className="min-w-0 flex-1 leading-relaxed">{wsMenuNotice.text}</p>
+          <button
+            type="button"
+            onClick={() => setWsMenuNotice(null)}
+            className={[
+              '-m-1 shrink-0 rounded-lg p-1.5 transition-colors',
+              wsMenuNotice.tone === 'error'
+                ? 'text-rose-600 hover:bg-rose-100/80'
+                : 'text-emerald-700 hover:bg-emerald-100/80',
+            ].join(' ')}
+            aria-label="Đóng thông báo"
+          >
+            <X className="h-4 w-4" strokeWidth={2} />
+          </button>
+        </div>
+      )}
       {(workspaceMenuOpen || accountMenuOpen) && (
         <div
           className="pointer-events-auto fixed inset-0 z-20 cursor-default bg-slate-900/[0.18] backdrop-blur-[3px] transition-opacity"
@@ -1041,11 +1130,15 @@ export function WorkspaceAppLayout() {
                         (origIdx >= 0 ? origIdx : 0) % AGENT_ROW_ICONS.length
                       ]
                     return (
-                      <li key={a._id}>
+                      <li
+                        key={a._id}
+                        className="flex min-w-0 items-stretch gap-0.5 rounded-lg"
+                      >
                         <Link
                           to={`${base}/agents/${a._id}`}
                           className={[
                             rowItem,
+                            'min-w-0 flex-1 pr-2',
                             aActive ? rowActive : rowIdle,
                           ].join(' ')}
                         >
@@ -1068,6 +1161,22 @@ export function WorkspaceAppLayout() {
                             {a.name}
                           </span>
                         </Link>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setAgentDeleteTarget({ id: a._id, name: a.name })
+                          }}
+                          disabled={
+                            agentDeleteLoading || agentDeleteTarget != null
+                          }
+                          className="flex w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50/80 hover:text-rose-600 disabled:opacity-40"
+                          title="Xoá agent"
+                          aria-label={`Xoá agent ${a.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        </button>
                       </li>
                     )
                   })}
@@ -1391,7 +1500,8 @@ export function WorkspaceAppLayout() {
                 type="button"
                 className="text-rose-600 hover:bg-rose-50/70 flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-xs"
                 onClick={() => {
-                  void handleDeleteWorkspace(w._id)
+                  setWsDeleteTarget({ id: w._id, name: w.name })
+                  setWsRowMenu(null)
                 }}
               >
                 <Trash2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
@@ -1400,6 +1510,56 @@ export function WorkspaceAppLayout() {
             </div>
           )
         })()}
+      <ConfirmDialog
+        open={agentDeleteTarget != null}
+        title="Xoá agent?"
+        description={
+          agentDeleteTarget ? (
+            <>
+              Agent{' '}
+              <span className="font-medium text-slate-800 break-all">
+                “{agentDeleteTarget.name}”
+              </span>{' '}
+              sẽ bị gỡ khỏi workspace. Nếu còn task gắn agent, hệ thống sẽ từ
+              chối — hãy xử lý task trước.
+            </>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Xoá agent"
+        cancelLabel="Hủy"
+        onClose={() => {
+          if (!agentDeleteLoading) setAgentDeleteTarget(null)
+        }}
+        onConfirm={() => void runDeleteAgent()}
+        busy={agentDeleteLoading}
+        danger
+      />
+      <ConfirmDialog
+        open={wsDeleteTarget != null}
+        title="Xoá workspace?"
+        description={
+          wsDeleteTarget ? (
+            <>
+              <span className="font-medium text-slate-800 break-all">
+                “{wsDeleteTarget.name}”
+              </span>{' '}
+              sẽ bị xoá. Dữ liệu liên quan sẽ bị ảnh hưởng. Thao tác không hoàn tác.
+            </>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Xoá workspace"
+        cancelLabel="Hủy"
+        onClose={() => {
+          if (!wsDeleteLoading) setWsDeleteTarget(null)
+        }}
+        onConfirm={() => void runDeleteWorkspace()}
+        busy={wsDeleteLoading}
+        danger
+      />
       {createWsOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4"

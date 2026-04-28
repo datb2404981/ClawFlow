@@ -34,6 +34,11 @@ app.include_router(chat_router, prefix="/api/v1", tags=["Chat"])
 from Api.refine_system_prompt import router as refine_system_prompt_router
 app.include_router(refine_system_prompt_router, prefix="/api/v1", tags=["Refine System Prompt"])
 
+# Móc API Skill Router
+from Api.route_skills import router as route_skills_router
+app.include_router(route_skills_router, prefix="/api/v1", tags=["Skill Router"])
+
+
 @app.get('/')
 async def health_check():
   return {

@@ -6,16 +6,19 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import type { Express } from 'express';
 import { WorkspacesService } from './workspaces.service';
+import { WorkspaceKnowledgeStorageService } from './workspace-knowledge-storage.service';
+import { WorkspaceKnowledgeIngestService } from './workspace-knowledge-ingest.service';
 import {
   WorkspaceKnowledgeFile,
   WorkspaceKnowledgeFileDocument,
 } from '../schema/workspace-knowledge-file.schema';
 
-const MAX_KB_BYTES = 20 * 1024 * 1024;
+const MAX_KB_BYTES = 100 * 1024 * 1024;
 const allowedExt = /\.(pdf|docx|txt)$/i;
 
 @Injectable()
@@ -24,6 +27,8 @@ export class WorkspaceKnowledgeService {
     @InjectModel(WorkspaceKnowledgeFile.name)
     private readonly kbFileModel: Model<WorkspaceKnowledgeFileDocument>,
     private readonly workspaces: WorkspacesService,
+    private readonly storage: WorkspaceKnowledgeStorageService,
+    private readonly ingest: WorkspaceKnowledgeIngestService,
   ) {}
 
   private toOid(id: string): Types.ObjectId {
@@ -54,7 +59,7 @@ export class WorkspaceKnowledgeService {
   }
 
   /**
-   * Ghi bản ghi DB sau khi Multer lưu file lên đĩa.
+   * Tải buffer lên R2 và ghi bản ghi DB (stored_filename = object key).
    */
   async registerMulterFile(
     userId: string,
@@ -62,29 +67,44 @@ export class WorkspaceKnowledgeService {
     file: Express.Multer.File,
   ) {
     await this.workspaces.findOne(userId, workspaceId);
+    this.storage.assertReady();
     if (!file) {
       throw new BadRequestException('Thiếu tệp');
     }
-    if (!allowedExt.test(file.originalname)) {
-      const path = file.path;
-      await fsp.unlink(path).catch(() => undefined);
+    if (!file.buffer || !Buffer.isBuffer(file.buffer)) {
+      throw new BadRequestException('Tệp không có buffer (cần memory storage).');
+    }
+    const normalizedName = file.originalname.normalize('NFC');
+    if (!allowedExt.test(normalizedName)) {
       throw new BadRequestException('Chỉ chấp nhận .pdf, .docx, .txt');
     }
     if (file.size > MAX_KB_BYTES) {
-      await fsp.unlink(file.path).catch(() => undefined);
-      throw new PayloadTooLargeException('Tệp tối đa 20MB.');
+      throw new PayloadTooLargeException('Tệp tối đa 100MB.');
     }
     const wid = this.toOid(workspaceId);
-    const stored = file.filename;
-    const mt = this.guessMime(file.originalname, file.mimetype);
+    const rawExt = (extname(normalizedName) || '').toLowerCase() || '.bin';
+    const key = `workspace-knowledge/${workspaceId}/${randomUUID()}${rawExt}`;
+    const mt = this.guessMime(normalizedName, file.mimetype);
+    await this.storage.putObject(key, file.buffer, mt);
     const doc = await this.kbFileModel.create({
       workspace_id: wid,
-      original_name: file.originalname,
-      stored_filename: stored,
+      original_name: normalizedName,
+      stored_filename: key,
       size_bytes: file.size,
       mime_type: mt,
+      ingest_status: 'pending',
     });
-    return doc.toJSON() as unknown as Record<string, unknown>;
+    setImmediate(() => {
+      const knowledgeFileId = new Types.ObjectId(String(doc._id));
+      void this.ingest.ingestAfterUpload({
+        knowledgeFileId,
+        workspaceId: wid,
+        r2Key: key,
+        originalName: normalizedName,
+      });
+    });
+    const d = doc as { toObject: () => object };
+    return d.toObject() as unknown as Record<string, unknown>;
   }
 
   async remove(userId: string, workspaceId: string, fileId: string) {
@@ -100,6 +120,11 @@ export class WorkspaceKnowledgeService {
     });
     if (!doc) {
       throw new NotFoundException('Không tìm thấy tệp');
+    }
+    await this.ingest.deleteChunksByKnowledgeFileId(doc._id);
+    if (doc.stored_filename.includes('workspace-knowledge/')) {
+      await this.storage.deleteObject(doc.stored_filename);
+      return;
     }
     const fullPath = join(
       process.cwd(),

@@ -25,6 +25,15 @@ import { WorkspaceDocumentsModuleModule } from './module/workspace-documents-mod
       }),
       inject: [ConfigService],
     }),
+    import('@nestjs/bullmq').then(m => m.BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        connection: {
+          url: configService.get<string>('REDIS_URI') || 'redis://localhost:6379',
+        },
+      }),
+      inject: [ConfigService],
+    })),
     UsersModule,
     AiCenterModule,
     WorkspaceDocumentsModuleModule,

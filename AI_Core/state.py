@@ -14,6 +14,9 @@ from pymongo import MongoClient
 from Tools.tool_browser import tool_by_name as browser_tools
 from Tools.tool_content import tool_by_name as content_tools
 from Tools.tool_memory import tool_by_name as memory_tools
+from Tools.tool_calculator import tool_by_name as calculator_tools
+from Tools.tool_code import tool_by_name as code_tools
+from Tools.tool_rag import tool_by_name as rag_tools
 
 load_dotenv()
 
@@ -43,11 +46,14 @@ class ClawFlowState(TypedDict, total=False):
     thread_rules: Optional[str]
     memory_loaded: bool
 
+    review_count: int
+    tool_call_count: int
+
 
 # =========================================================================
 # TOOLS REGISTRY
 # =========================================================================
-ALL_TOOLS = {**browser_tools, **content_tools, **memory_tools}
+ALL_TOOLS = {**browser_tools, **content_tools, **memory_tools, **calculator_tools, **code_tools, **rag_tools}
 MEMORY_TOOL_NAMES = set(memory_tools.keys())
 CONTENT_TOOL_NAMES = set(content_tools.keys())
 

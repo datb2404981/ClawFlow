@@ -254,7 +254,7 @@ export class SkillTemplatesService {
       $set.description = d ? d : null;
     }
     const next = await this.templateModel
-      .findByIdAndUpdate(doc._id, { $set }, { new: true })
+      .findByIdAndUpdate(doc._id, { $set }, { returnDocument: 'after' })
       .exec();
     if (!next) {
       throw new NotFoundException('Không tìm thấy skill template');

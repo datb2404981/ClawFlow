@@ -15,7 +15,12 @@ import {
   SkillTemplate,
   SkillTemplateDocument,
 } from '../schema/skill-template.schema';
-import { Agents, AgentsDocument } from '../schema/ai-center.schema';
+import {
+  Agents,
+  AgentsDocument,
+  Task,
+  TaskDocument,
+} from '../schema/ai-center.schema';
 import { CreateAgentDto } from '../dto/create-agent.dto';
 import { UpdateAgentDto } from '../dto/update-agent.dto';
 import { resolveAttachableTemplateIds } from './resolve-attachable-template-ids';
@@ -122,6 +127,7 @@ function withoutEnabledTemplateIds<T extends { enabled_skill_template_ids?: stri
 export class AgentsService {
   constructor(
     @InjectModel(Agents.name) private agentsModel: Model<AgentsDocument>,
+    @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(SkillTemplate.name)
     private readonly skillTemplateModel: Model<SkillTemplateDocument>,
     private readonly workspacesService: WorkspacesService,
@@ -210,7 +216,7 @@ export class AgentsService {
     const agent = await this.agentsModel.findOneAndUpdate(
       { _id },
       { $set: setPayload },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (!agent) {
       throw new NotFoundException('Trợ lý không tồn tại');
@@ -218,12 +224,27 @@ export class AgentsService {
     return agent.toJSON() as Agents;
   }
 
-  async deleteAgent(_id: string) {
-    const agent = await this.agentsModel.findOneAndDelete({ _id });
+  async deleteAgent(userId: string, _id: string): Promise<string> {
+    const agent = await this.agentsModel.findById(_id).exec();
     if (!agent) {
       throw new NotFoundException('Trợ lý không tồn tại');
     }
-    return "OK";
+    await this.workspacesService.findOne(userId, String(agent.workspace_id));
+
+    const taskCount = await this.taskModel.countDocuments({
+      agent_id: agent._id,
+    });
+    if (taskCount > 0) {
+      throw new ConflictException(
+        'Không xóa được agent: còn công việc (task) gắn với agent. Xóa hoặc đổi agent của các task trước.',
+      );
+    }
+
+    const res = await this.agentsModel.deleteOne({ _id: agent._id }).exec();
+    if (res.deletedCount === 0) {
+      throw new NotFoundException('Trợ lý không tồn tại');
+    }
+    return 'OK';
   }
 
   async refineSystemPrompt(systemPromptOfUser: string): Promise<{

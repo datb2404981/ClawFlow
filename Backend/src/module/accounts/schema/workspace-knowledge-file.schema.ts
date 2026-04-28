@@ -10,7 +10,7 @@ export class WorkspaceKnowledgeFile {
   @Prop({ required: true })
   original_name: string;
 
-  /** Tên file trên đĩa (unique trong thư mục workspace) */
+  /** Object key trên R2, hoặc tên file local (bản ghi cũ trước R2). */
   @Prop({ required: true })
   stored_filename: string;
 
@@ -19,6 +19,12 @@ export class WorkspaceKnowledgeFile {
 
   @Prop()
   mime_type?: string;
+
+  @Prop({ enum: ['pending', 'indexed', 'failed'], default: 'pending' })
+  ingest_status?: 'pending' | 'indexed' | 'failed';
+
+  @Prop()
+  ingest_error?: string;
 
   createdAt: Date;
   updatedAt: Date;

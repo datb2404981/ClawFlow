@@ -12,22 +12,22 @@ export class Agents {
     required: true,
     index: true
   })
-  workspace_id: Types.ObjectId;
+  workspace_id!: Types.ObjectId;
 
   @Prop()
-  name: string;
+  name!: string;
 
   @Prop()
-  description: string;
+  description!: string;
 
   @Prop()
-  system_prompt: string;
+  system_prompt!: string;
   
   @Prop()
-  built_in_tools: string[];
+  built_in_tools!: string[];
 
   @Prop()
-  custom_skills: string;
+  custom_skills!: string;
 
   /**
    * Skill theo thư viện template: chỉ tham chiếu id; bật/tắt = sửa mảng này.
@@ -36,10 +36,10 @@ export class Agents {
     type: [{ type: Types.ObjectId, ref: SkillTemplate.name }],
     default: [],
   })
-  enabled_skill_template_ids: Types.ObjectId[];
+  enabled_skill_template_ids!: Types.ObjectId[];
 
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt!: Date;
+  updatedAt!: Date;
 }
 
 export type AgentsDocument = HydratedDocument<Agents>;
@@ -62,19 +62,19 @@ export class Task {
     required: true,
     index: true,
   })
-  workspace_id: Types.ObjectId;
+  workspace_id!: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: Agents.name, required: true, index: true })
-  agent_id: Types.ObjectId;
+  agent_id!: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: User.name, required: true, index: true })
-  created_by: Types.ObjectId;
+  created_by!: Types.ObjectId;
 
   @Prop()
-  title: string;
+  title!: string;
 
   @Prop()
-  description: string;
+  description!: string;
 
   @Prop({
     type: String,
@@ -82,14 +82,22 @@ export class Task {
     default: 'scheduled',
     index: true,
   })
-  status: TaskStatus;
+  status!: TaskStatus;
 
   /** Luồng hội thoại AI_Core; có thể cập nhật sau (callback tùy tương lai). */
   @Prop({ index: true, sparse: true })
   thread_id?: string;
 
-  createdAt: Date;
-  updatedAt: Date;
+  /** Lưu toàn bộ ngữ cảnh đã được nhúng vào (Skill + RAG + Prompt) để gửi cho AI */
+  @Prop()
+  compiled_prompt?: string;
+
+  /** Lưu kết quả phản hồi của AI */
+  @Prop()
+  result?: string;
+
+  createdAt!: Date;
+  updatedAt!: Date;
 }
 
 export type TaskDocument = HydratedDocument<Task>;

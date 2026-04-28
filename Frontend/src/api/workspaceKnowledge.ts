@@ -7,6 +7,9 @@ export type KbFileListItem = {
   stored_filename: string
   size_bytes: number
   mime_type?: string
+  /** pending → đang parse/embed; indexed → đã ghi chunk; failed → xem ingest_error */
+  ingest_status?: 'pending' | 'indexed' | 'failed'
+  ingest_error?: string
   createdAt: string
 }
 

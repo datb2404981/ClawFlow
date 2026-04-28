@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true,
       proxy: {
+        /** Chỉ dùng nếu bật `VITE_DEV_API_PROXY=1` (client mặc định gọi thẳng Nest để tải file lớn ổn). */
         '/api/v1/': {
           target: `http://${backendHost}:${backendPort}`,
           changeOrigin: true,

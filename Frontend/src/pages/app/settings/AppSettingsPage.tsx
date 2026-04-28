@@ -34,8 +34,8 @@ export function AppSettingsPage() {
             />
             <span>
               Các thiết lập bên dưới áp dụng cho giao diện trên thiết bị. Cấu
-              hình workspace và knowledge base (RAG) nằm ở{' '}
-              <strong>Workspace &amp; knowledge base</strong> trong menu chuyển
+              hình workspace và Kho tài liệu AI nằm ở{' '}
+              <strong>Workspace &amp; Kho tài liệu AI</strong> trong menu chuyển
               workspace.
             </span>
           </div>

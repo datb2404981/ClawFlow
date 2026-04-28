@@ -11,6 +11,10 @@ import {
   WorkspaceKnowledgeFile,
   WorkspaceKnowledgeFileSchema,
 } from './schema/workspace-knowledge-file.schema';
+import {
+  KnowledgeChunk,
+  KnowledgeChunkSchema,
+} from '../workspace-documents-module/schema/workspace-document.schema';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthController } from './controller/auth.controller';
 import { AuthService } from './service/auth.service';
@@ -22,6 +26,10 @@ import { WorkspacesController } from './controller/workspaces.controller';
 import { WorkspacesService } from './service/workspaces.service';
 import { WorkspaceKnowledgeController } from './controller/workspace-knowledge.controller';
 import { WorkspaceKnowledgeService } from './service/workspace-knowledge.service';
+import { WorkspaceKnowledgeStorageService } from './service/workspace-knowledge-storage.service';
+import { GeminiEmbeddingService } from './service/gemini-embedding.service';
+import { KnowledgeFileParserService } from './service/knowledge-file-parser.service';
+import { WorkspaceKnowledgeIngestService } from './service/workspace-knowledge-ingest.service';
 
 @Module({
   imports: [
@@ -32,6 +40,7 @@ import { WorkspaceKnowledgeService } from './service/workspace-knowledge.service
         name: WorkspaceKnowledgeFile.name,
         schema: WorkspaceKnowledgeFileSchema,
       },
+      { name: KnowledgeChunk.name, schema: KnowledgeChunkSchema },
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -55,6 +64,10 @@ import { WorkspaceKnowledgeService } from './service/workspace-knowledge.service
     JwtStrategy,
     GoogleStrategy,
     WorkspacesService,
+    WorkspaceKnowledgeStorageService,
+    GeminiEmbeddingService,
+    KnowledgeFileParserService,
+    WorkspaceKnowledgeIngestService,
     WorkspaceKnowledgeService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],

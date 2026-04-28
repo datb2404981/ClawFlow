@@ -1,13 +1,21 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEventHandler,
   type DragEvent,
   type MouseEvent,
 } from 'react'
-import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import {
+  Link,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+} from 'react-router-dom'
+import {
+  Check,
   FileText,
   Globe,
   Info,
@@ -21,6 +29,7 @@ import {
   ScrollText,
   Sparkles,
   User,
+  X,
 } from 'lucide-react'
 import {
   createAgent,
@@ -352,14 +361,40 @@ function skillTemplateIconUI(t: SkillTemplate) {
   return { Icon: FileText, iconBox: TEMPLATE_ICON_BOX }
 }
 
+type AgentBuilderLocationState = {
+  returnTo?: string
+}
+
+/** Chỉ cho phép quay lại đúng `/app/w/:id/settings/workspace` của workspace hiện tại (tránh open redirect). */
+function safeWorkspaceSettingsReturn(
+  raw: string | undefined,
+  workspaceId: string | undefined,
+): string | null {
+  if (!raw?.trim() || !workspaceId) return null
+  const path = raw.trim().replace(/\/$/, '') || raw.trim()
+  const m = /^\/app\/w\/([^/]+)\/settings\/workspace$/.exec(path)
+  if (!m || m[1] !== workspaceId) return null
+  return path
+}
+
 export function AgentBuilderPage() {
   const { refresh } = useOutletContext<WsOutlet>()
   const { workspaceId, agentId } = useParams<{
     workspaceId: string
     agentId?: string
   }>()
+  const loc = useLocation()
   const nav = useNavigate()
   const isCreate = !agentId
+
+  const returnToWorkspace = useMemo(
+    () =>
+      safeWorkspaceSettingsReturn(
+        (loc.state as AgentBuilderLocationState | null)?.returnTo,
+        workspaceId,
+      ),
+    [loc.state, workspaceId],
+  )
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -394,6 +429,38 @@ export function AgentBuilderPage() {
   const skillContentModalSnapshotRef = useRef('')
   const [skillDropActive, setSkillDropActive] = useState(false)
   const skillFileInputRef = useRef<HTMLInputElement>(null)
+
+  /** Toast sau lưu agent — không dùng banner; tự ẩn sau vài giây. */
+  const [saveSuccessToast, setSaveSuccessToast] = useState<{
+    open: boolean
+    workspacePath: string | null
+  }>({ open: false, workspacePath: null })
+  const saveToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const dismissSaveToast = () => {
+    if (saveToastTimerRef.current) {
+      clearTimeout(saveToastTimerRef.current)
+      saveToastTimerRef.current = null
+    }
+    setSaveSuccessToast({ open: false, workspacePath: null })
+  }
+
+  const showSaveSuccessToast = (workspacePath: string | null) => {
+    if (saveToastTimerRef.current) {
+      clearTimeout(saveToastTimerRef.current)
+    }
+    setSaveSuccessToast({ open: true, workspacePath })
+    saveToastTimerRef.current = setTimeout(() => {
+      saveToastTimerRef.current = null
+      setSaveSuccessToast({ open: false, workspacePath: null })
+    }, 6500)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!workspaceId) return
@@ -623,10 +690,12 @@ export function AgentBuilderPage() {
           enabled_skill_template_ids: enabled.length ? enabled : undefined,
         })
         refresh()
-        nav(
-          `/app/w/${workspaceId}/agents/${created._id}`,
-          { replace: true },
-        )
+        const ret = (loc.state as AgentBuilderLocationState | null)?.returnTo
+        nav(`/app/w/${workspaceId}/agents/${created._id}`, {
+          replace: true,
+          state: ret ? { returnTo: ret } : undefined,
+        })
+        showSaveSuccessToast(returnToWorkspace)
       } else {
         await updateAgent(agentId!, {
           name: name.trim() || undefined,
@@ -636,6 +705,7 @@ export function AgentBuilderPage() {
           enabled_skill_template_ids: enabled,
         })
         refresh()
+        showSaveSuccessToast(returnToWorkspace)
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Không lưu được. Vui lòng thử lại.')
@@ -791,6 +861,47 @@ export function AgentBuilderPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {saveSuccessToast.open && (
+        <div
+          className="pointer-events-none fixed bottom-4 right-4 z-[220] flex max-w-[min(22rem,calc(100vw-2rem))] flex-col items-end gap-2 sm:bottom-6 sm:right-6"
+          role="status"
+          aria-live="polite"
+        >
+          <div
+            className="pointer-events-auto flex w-full items-start gap-3 rounded-xl border border-slate-200/90 bg-white/95 px-3.5 py-3 shadow-[0_4px_24px_-4px_rgba(15,23,42,0.12)] backdrop-blur-md"
+          >
+            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-slate-50/80 text-slate-600">
+              <Check className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <p className="text-[13px] leading-snug text-slate-700">
+                Đã lưu thành công!
+                {saveSuccessToast.workspacePath ? (
+                  <>
+                    {' '}
+                    <Link
+                      to={saveSuccessToast.workspacePath}
+                      onClick={dismissSaveToast}
+                      className="font-medium text-slate-800 underline decoration-slate-300 underline-offset-[3px] transition-colors hover:decoration-slate-500"
+                    >
+                      Quay về Workspace
+                    </Link>
+                  </>
+                ) : null}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissSaveToast}
+              className="-m-1 shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100/80 hover:text-slate-600"
+              aria-label="Đóng thông báo"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
           </div>
         </div>
       )}

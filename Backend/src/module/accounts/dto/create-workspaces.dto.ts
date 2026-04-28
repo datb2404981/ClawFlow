@@ -27,7 +27,7 @@ export class CreateWorkspacesDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- class-transformer cần factory trả về class
+   
   @Type(() => TaskLaneDto)
   task_lanes?: TaskLaneDto[];
 

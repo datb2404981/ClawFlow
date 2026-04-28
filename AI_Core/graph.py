@@ -8,12 +8,14 @@ from Nodes.content import content_agent_node
 from Nodes.leader import leader_agent_node
 from Nodes.memory import memory_bootstrap_node, memory_writer_node
 from Nodes.tools import tools_node
+from Nodes.reviewer import reviewer_node
 from Routers.router import (
     after_writer_router,
     content_router,
     entry_router,
     leader_router,
     tools_router,
+    review_router,
 )
 from state import MEMORY_TOOL_NAMES, ClawFlowState, client, db_saver  # noqa: F401 (re-export)
 
@@ -28,6 +30,7 @@ graph.add_node("memory_writer", memory_writer_node)
 graph.add_node("leader_agent", leader_agent_node)
 graph.add_node("content_agent", content_agent_node)
 graph.add_node("tools", tools_node)
+graph.add_node("reviewer", reviewer_node)
 
 graph.add_conditional_edges(
     START,
@@ -56,7 +59,7 @@ graph.add_conditional_edges(
     {
         "tools": "tools",
         "content_agent": "content_agent",
-        END: END,
+        "reviewer": "reviewer",
     },
 )
 
@@ -65,7 +68,7 @@ graph.add_conditional_edges(
     content_router,
     {
         "tools": "tools",
-        END: END,
+        "reviewer": "reviewer",
     },
 )
 
@@ -75,6 +78,16 @@ graph.add_conditional_edges(
     {
         "leader_agent": "leader_agent",
         "content_agent": "content_agent",
+        "reviewer": "reviewer",
+    },
+)
+
+graph.add_conditional_edges(
+    "reviewer",
+    review_router,
+    {
+        "leader_agent": "leader_agent",
+        END: END,
     },
 )
 

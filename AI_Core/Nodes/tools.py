@@ -11,4 +11,5 @@ _tool_executor = ToolNode(list(ALL_TOOLS.values()))
 
 async def tools_node(state: ClawFlowState):
     response = await _tool_executor.ainvoke(state)
-    return {"messages": response["messages"]}
+    tool_count = state.get("tool_call_count", 0) + 1
+    return {"messages": response["messages"], "tool_call_count": tool_count}

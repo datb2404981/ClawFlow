@@ -52,6 +52,10 @@ export async function updateAgent(
   return data.data
 }
 
+export async function deleteAgent(id: string): Promise<void> {
+  await api.delete(`/agents/${id}`)
+}
+
 export type RefineSystemPromptResult = {
   message: string
   data: string

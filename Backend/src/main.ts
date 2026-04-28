@@ -21,10 +21,16 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = Number(config.get('PORT') ?? config.get('POST') ?? 8080);
 
-  /** Mặc định Express chỉ 100KB — workspace có logo/brand base64 cần lớn hơn. */
-  const jsonBodyLimit = config.get<string>('HTTP_JSON_LIMIT') ?? '2mb';
-  app.use(json({ limit: jsonBodyLimit }));
-  app.use(urlencoded({ limit: jsonBodyLimit, extended: true }));
+  /**
+   * JSON / urlencoded. Mặc định 100mb — đồng bộ với upload knowledge (và tránh
+   * 413 ở lớp body-parser nếu Content-Type bị lệch). Tùy: HTTP_BODY_LIMIT hoặc HTTP_JSON_LIMIT.
+   */
+  const bodyLimit =
+    config.get<string>('HTTP_BODY_LIMIT')?.trim() ||
+    config.get<string>('HTTP_JSON_LIMIT')?.trim() ||
+    '100mb';
+  app.use(json({ limit: bodyLimit }));
+  app.use(urlencoded({ limit: bodyLimit, extended: true }));
 
   app.use(cookieParser());
 

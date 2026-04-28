@@ -14,6 +14,7 @@ import {
   useParams,
 } from 'react-router-dom'
 import {
+  AlertCircle,
   BarChart3,
   Bot,
   ChevronRight,
@@ -22,6 +23,7 @@ import {
   Loader2,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 import { getApiErrorMessage } from '../../../api/errors'
 import {
@@ -37,6 +39,8 @@ import {
   uploadKnowledgeFile,
   type KbFileListItem,
 } from '../../../api/workspaceKnowledge'
+import { deleteAgent } from '../../../api/agents'
+import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import type { WsOutlet } from '../../../layouts/WorkspaceAppLayout'
 
 const fieldLabel =
@@ -70,6 +74,9 @@ const sectionHeaderIcon = 'h-4 w-4 shrink-0 text-indigo-600'
 const dropZoneClass =
   'flex min-h-[11rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-6 text-center transition-[border-color,background-color] '
 
+/** Đồng bộ với `limits.fileSize` API knowledge (100MB). */
+const MAX_KNOWLEDGE_FILE_BYTES = 100 * 1024 * 1024
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
@@ -86,6 +93,25 @@ function formatDate(iso: string): string {
   } catch {
     return '—'
   }
+}
+
+type IngestLine =
+  | { kind: 'none' }
+  | { kind: 'pending' }
+  | { kind: 'ok' }
+  | { kind: 'err'; detail: string }
+
+function kbIngestLine(f: KbFileListItem): IngestLine {
+  const s = f.ingest_status
+  if (s == null) return { kind: 'none' }
+  if (s === 'failed') {
+    return {
+      kind: 'err',
+      detail: f.ingest_error?.trim() || 'Lập chỉ mục thất bại (không có chi tiết).',
+    }
+  }
+  if (s === 'indexed') return { kind: 'ok' }
+  return { kind: 'pending' }
 }
 
 function fileIcon(mime: string | undefined, name: string) {
@@ -124,6 +150,20 @@ export function WorkspaceManagePage() {
   const [kbLoading, setKbLoading] = useState(!isCreate)
   const [kbBusy, setKbBusy] = useState(false)
   const [dropActive, setDropActive] = useState(false)
+  const [kbNotice, setKbNotice] = useState<{
+    tone: 'error' | 'success'
+    text: string
+  } | null>(null)
+  const [kbDeleteTarget, setKbDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [kbDeleteBusy, setKbDeleteBusy] = useState(false)
+  const [agentDeleteTarget, setAgentDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [agentDeleteBusy, setAgentDeleteBusy] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadEdit = useCallback(async () => {
@@ -158,8 +198,27 @@ export function WorkspaceManagePage() {
   useEffect(() => {
     document.title = isCreate
       ? 'Tạo workspace — ClawFlow'
-      : 'Workspace & knowledge base — ClawFlow'
+      : 'Workspace & Kho tài liệu AI — ClawFlow'
   }, [isCreate])
+
+  useEffect(() => {
+    if (!kbNotice) return
+    const t = window.setTimeout(() => setKbNotice(null), 7000)
+    return () => window.clearTimeout(t)
+  }, [kbNotice])
+
+  const hasPendingIngest = useMemo(
+    () => kbFiles.some((f) => f.ingest_status === 'pending'),
+    [kbFiles],
+  )
+
+  useEffect(() => {
+    if (!workspaceId || isCreate || !hasPendingIngest) return
+    const id = window.setInterval(() => {
+      void loadEdit()
+    }, 2000)
+    return () => window.clearInterval(id)
+  }, [workspaceId, isCreate, hasPendingIngest, loadEdit])
 
   const totalKbBytes = useMemo(
     () => kbFiles.reduce((s, f) => s + f.size_bytes, 0),
@@ -176,12 +235,26 @@ export function WorkspaceManagePage() {
       for (const f of Array.from(files)) {
         const ext = f.name.toLowerCase().split('.').pop()
         if (!ext || !['pdf', 'docx', 'txt'].includes(ext)) continue
+        if (f.size > MAX_KNOWLEDGE_FILE_BYTES) {
+          setKbNotice({
+            tone: 'error',
+            text: `“${f.name}” vượt quá 100MB. Hãy chọn tệp nhỏ hơn.`,
+          })
+          continue
+        }
         setKbBusy(true)
         try {
           const row = await uploadKnowledgeFile(workspaceId, f)
           setKbFiles((list) => [row, ...list])
+          setKbNotice({
+            tone: 'success',
+            text: `Đã tải lên “${f.name}”.`,
+          })
         } catch (e) {
-          alert(getApiErrorMessage(e, 'Không tải lên được tệp.'))
+          setKbNotice({
+            tone: 'error',
+            text: getApiErrorMessage(e, 'Không tải lên được tệp.'),
+          })
           break
         } finally {
           setKbBusy(false)
@@ -208,17 +281,44 @@ export function WorkspaceManagePage() {
     void onDropFiles(e.dataTransfer?.files ?? null)
   }
 
-  const onDeleteFile = async (id: string) => {
-    if (!workspaceId) return
-    if (!window.confirm('Xoá tệp này khỏi knowledge base?')) return
-    setKbBusy(true)
+  const confirmAgentDelete = async () => {
+    if (!agentDeleteTarget || !workspaceId) return
+    const { id, name } = agentDeleteTarget
+    setAgentDeleteBusy(true)
+    try {
+      await deleteAgent(id)
+      refresh()
+      setAgentDeleteTarget(null)
+      setKbNotice({
+        tone: 'success',
+        text: `Đã xoá agent “${name}”.`,
+      })
+    } catch (e) {
+      setKbNotice({
+        tone: 'error',
+        text: getApiErrorMessage(e, 'Không xoá được agent.'),
+      })
+    } finally {
+      setAgentDeleteBusy(false)
+    }
+  }
+
+  const confirmKbFileDelete = async () => {
+    if (!kbDeleteTarget || !workspaceId) return
+    const { id } = kbDeleteTarget
+    setKbDeleteBusy(true)
     try {
       await deleteKnowledgeFile(workspaceId, id)
       setKbFiles((l) => l.filter((f) => f._id !== id))
+      setKbNotice({ tone: 'success', text: 'Đã xoá tệp khỏi Kho tài liệu AI.' })
+      setKbDeleteTarget(null)
     } catch (e) {
-      alert(getApiErrorMessage(e, 'Không xoá được tệp.'))
+      setKbNotice({
+        tone: 'error',
+        text: getApiErrorMessage(e, 'Không xoá được tệp.'),
+      })
     } finally {
-      setKbBusy(false)
+      setKbDeleteBusy(false)
     }
   }
 
@@ -277,7 +377,7 @@ export function WorkspaceManagePage() {
       <div className="mx-auto mb-[25px] grid w-full max-w-6xl grid-cols-1 items-start gap-4 sm:mb-[33px] sm:grid-cols-[1fr_minmax(0,40rem)_1fr] sm:items-start sm:gap-y-0">
         <div className="min-w-0 text-center sm:col-start-2 sm:row-start-1">
           <h1 className="text-[1.65rem] font-bold leading-tight tracking-[-0.03em] text-slate-900 sm:text-2xl">
-            {isCreate ? 'Tạo workspace' : 'Workspace & knowledge base'}
+            {isCreate ? 'Tạo workspace' : 'Workspace & Kho tài liệu AI'}
           </h1>
           <p className="mt-2 text-pretty text-sm leading-relaxed text-slate-500 sm:mt-2.5">
             {isCreate
@@ -366,13 +466,51 @@ export function WorkspaceManagePage() {
                   strokeWidth={2}
                   aria-hidden
                 />
-                <h2 className={sectionHeading}>Knowledge base</h2>
+                <h2 className={sectionHeading}>Kho tài liệu AI</h2>
               </div>
               <p className="mb-4 text-sm leading-relaxed text-slate-600">
                 {isCreate
                   ? 'Tải tài liệu gắn với từng workspace — chỉ bật sau khi workspace đã được tạo và bạn ở trang cấu hình (có sẵn dữ liệu).'
-                  : 'Tài liệu PDF, Word hoặc văn bản phục vụ tra cứu ngữ cảnh (RAG). Kéo thả hoặc chọn tệp — không thay thế skill hay system prompt của agent.'}
+                  : 'Tài liệu PDF, Word hoặc văn bản phục vụ AI tra cứu thông minh. Kéo thả hoặc chọn tệp — không thay thế Kỹ năng (Skill) hay Chỉ thị hệ thống của agent.'}
               </p>
+              {kbNotice && (
+                <div
+                  role="alert"
+                  className={[
+                    'mb-4 flex items-start gap-3 rounded-xl border px-3.5 py-3 text-sm shadow-sm',
+                    kbNotice.tone === 'error'
+                      ? 'border-rose-200/90 bg-rose-50/95 text-rose-950'
+                      : 'border-emerald-200/90 bg-emerald-50/95 text-emerald-950',
+                  ].join(' ')}
+                >
+                  {kbNotice.tone === 'error' ? (
+                    <AlertCircle
+                      className="mt-0.5 h-4 w-4 shrink-0 text-rose-600"
+                      strokeWidth={2}
+                      aria-hidden
+                    />
+                  ) : (
+                    <span
+                      className="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500"
+                      aria-hidden
+                    />
+                  )}
+                  <p className="min-w-0 flex-1 leading-relaxed">{kbNotice.text}</p>
+                  <button
+                    type="button"
+                    onClick={() => setKbNotice(null)}
+                    className={[
+                      '-m-1 shrink-0 rounded-lg p-1.5 transition-colors',
+                      kbNotice.tone === 'error'
+                        ? 'text-rose-600 hover:bg-rose-100/80'
+                        : 'text-emerald-700 hover:bg-emerald-100/80',
+                    ].join(' ')}
+                    aria-label="Đóng thông báo"
+                  >
+                    <X className="h-4 w-4" strokeWidth={2} />
+                  </button>
+                </div>
+              )}
               {isCreate ? (
                 <div className="rounded-2xl border border-dashed border-slate-200/90 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-500">
                   Sau khi bấm <strong className="text-slate-700">Tạo workspace</strong>, hệ
@@ -413,7 +551,7 @@ export function WorkspaceManagePage() {
                       Thả tệp .pdf, .docx, .txt vào đây
                     </span>
                     <span className="text-xs text-slate-500">
-                      Tối đa 20MB mỗi tệp
+                      Tối đa 100MB mỗi tệp
                     </span>
                     <input
                       ref={fileInputRef}
@@ -455,11 +593,50 @@ export function WorkspaceManagePage() {
                                 {formatBytes(f.size_bytes)} ·{' '}
                                 {formatDate(f.createdAt)}
                               </p>
+                              {(() => {
+                                const line = kbIngestLine(f)
+                                if (line.kind === 'none') return null
+                                if (line.kind === 'pending') {
+                                  return (
+                                    <p className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-amber-800">
+                                      <Loader2
+                                        className="h-3 w-3 shrink-0 animate-spin"
+                                        strokeWidth={2}
+                                        aria-hidden
+                                      />
+                                      Đang phân tích dữ liệu cho AI…
+                                    </p>
+                                  )
+                                }
+                                if (line.kind === 'ok') {
+                                  return (
+                                    <p className="mt-0.5 text-[11px] font-medium text-emerald-800">
+                                      Đã lập chỉ mục
+                                    </p>
+                                  )
+                                }
+                                return (
+                                  <p
+                                    className="mt-0.5 text-[11px] font-medium text-rose-800"
+                                    title={line.detail}
+                                  >
+                                    Lỗi lập chỉ mục:{' '}
+                                    <span className="font-normal text-rose-700/95">
+                                      {line.detail}
+                                    </span>
+                                  </p>
+                                )
+                              })()}
                             </div>
                             <button
                               type="button"
-                              onClick={() => void onDeleteFile(f._id)}
-                              disabled={kbBusy}
+                              onClick={() =>
+                                setKbDeleteTarget({
+                                  id: f._id,
+                                  name: f.original_name,
+                                })
+                              }
+                              disabled={kbBusy || kbDeleteBusy || kbDeleteTarget != null}
                               className="text-slate-400 hover:text-rose-600 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-rose-50/80"
                               title="Xoá"
                             >
@@ -496,10 +673,16 @@ export function WorkspaceManagePage() {
                   {agents.length > 0 && (
                     <ul className="mb-4 max-h-56 space-y-0.5 overflow-y-auto rounded-xl border border-slate-100/90 bg-slate-50/50 p-1">
                       {agents.map((a) => (
-                        <li key={a._id}>
+                        <li
+                          key={a._id}
+                          className="flex min-w-0 items-center gap-0.5 rounded-lg"
+                        >
                           <Link
                             to={`${base}/agents/${a._id}`}
-                            className="group flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-slate-800 transition hover:bg-white hover:shadow-sm"
+                            state={{
+                              returnTo: `${base}/settings/workspace`,
+                            }}
+                            className="group flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 py-2 text-left text-sm font-medium text-slate-800 transition hover:bg-white hover:shadow-sm"
                           >
                             <span className="min-w-0 flex-1 truncate">
                               {a.name}
@@ -510,6 +693,20 @@ export function WorkspaceManagePage() {
                               aria-hidden
                             />
                           </Link>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAgentDeleteTarget({ id: a._id, name: a.name })
+                            }
+                            disabled={
+                              agentDeleteBusy || agentDeleteTarget != null
+                            }
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50/80 hover:text-rose-600 disabled:opacity-40"
+                            title="Xoá agent"
+                            aria-label={`Xoá agent ${a.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -521,6 +718,9 @@ export function WorkspaceManagePage() {
                   )}
                   <Link
                     to={`${base}/agents/new`}
+                    state={{
+                      returnTo: `${base}/settings/workspace`,
+                    }}
                     className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:brightness-105"
                   >
                     <Bot className="h-4 w-4" strokeWidth={1.5} />
@@ -581,6 +781,57 @@ export function WorkspaceManagePage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={agentDeleteTarget != null}
+        title="Xoá agent?"
+        description={
+          agentDeleteTarget ? (
+            <>
+              Agent{' '}
+              <span className="font-medium text-slate-800 break-all">
+                “{agentDeleteTarget.name}”
+              </span>{' '}
+              sẽ bị gỡ khỏi workspace. Nếu agent còn task, hệ thống sẽ từ chối
+              xoá — hãy xử lý task trước.
+            </>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Xoá agent"
+        cancelLabel="Hủy"
+        onClose={() => {
+          if (!agentDeleteBusy) setAgentDeleteTarget(null)
+        }}
+        onConfirm={() => void confirmAgentDelete()}
+        busy={agentDeleteBusy}
+        danger
+      />
+      <ConfirmDialog
+        open={kbDeleteTarget != null}
+        title="Xoá tệp knowledge?"
+        description={
+          kbDeleteTarget ? (
+            <>
+              Tệp{' '}
+              <span className="font-medium text-slate-800 break-all">
+                “{kbDeleteTarget.name}”
+              </span>{' '}
+              sẽ bị gỡ khỏi Kho tài liệu AI và kho lưu trữ. Bạn chắc chắn?
+            </>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Xoá tệp"
+        cancelLabel="Hủy"
+        onClose={() => {
+          if (!kbDeleteBusy) setKbDeleteTarget(null)
+        }}
+        onConfirm={() => void confirmKbFileDelete()}
+        busy={kbDeleteBusy}
+        danger
+      />
     </div>
   )
 }

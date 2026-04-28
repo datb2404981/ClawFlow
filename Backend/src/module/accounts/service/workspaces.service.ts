@@ -111,10 +111,10 @@ export class WorkspacesService {
     dto: CreateWorkspacesDto,
   ): Promise<Workspace> {
     const owner = this.toObjectId(userId);
-    const existing = await this.workspaceModel.countDocuments({ user_id: owner });
-    if (existing >= 1) {
-      throw new ConflictException('Mỗi tài khoản chỉ có một workspace');
-    }
+    // Giới hạn đã được gỡ bỏ theo yêu cầu của user:
+    // if (existing >= 1) {
+    //   throw new ConflictException('Mỗi tài khoản chỉ có một workspace');
+    // }
     if (dto.is_default) {
       await this.clearDefaultForUser(owner);
     }
@@ -195,7 +195,7 @@ export class WorkspacesService {
         .findOneAndUpdate(
           { _id: id, user_id: owner },
           { $set },
-          { new: true, runValidators: true },
+          { returnDocument: 'after', runValidators: true },
         )
         .lean()
         .exec();
