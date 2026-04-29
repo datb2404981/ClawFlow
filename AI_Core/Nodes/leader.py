@@ -18,13 +18,26 @@ from Utils.messages import (
     has_memory_tool_call,
     is_memory_tool_msg,
     last_human_text,
+    last_human_text_excluding_internal,
     msg_attr,
-    strip_thought,
+    sanitize_assistant_text,
 )
 from state import ClawFlowState
 
 
 HISTORY_WINDOW = 8
+
+# Nest `tasks.service` luôn kết compiled prompt bằng khối này — chỉ đoạn sau
+# mới là câu user thật; fast-path regex không được quét cả RAG (false positive).
+_NHIEM_VU_MARKER = "### NHIỆM VỤ CỦA BẠN (TỪ NGƯỜI DÙNG):"
+
+
+def _user_question_for_fast_path(state: ClawFlowState) -> str:
+    blob = last_human_text_excluding_internal(state) or ""
+    idx = blob.rfind(_NHIEM_VU_MARKER)
+    if idx == -1:
+        return blob.strip()
+    return blob[idx + len(_NHIEM_VU_MARKER) :].strip()
 
 
 def _trim_history(messages: list) -> list:
@@ -297,7 +310,7 @@ async def leader_agent_node(state: ClawFlowState):
         f"rules={'Y' if thread_rules else 'N'}"
     )
 
-    user_text = last_human_text(state)
+    user_text = _user_question_for_fast_path(state)
     quick = _fast_recall_answer(user_text, thread_rules)
     if quick is not None:
         print("[leader] FAST_PATH recall → skip LLM")
@@ -350,7 +363,7 @@ async def leader_agent_node(state: ClawFlowState):
     response = await leader_agent.ainvoke(messages)
 
     if isinstance(response.content, str):
-        response.content = strip_thought(response.content)
+        response.content = sanitize_assistant_text(response.content)
 
     if not response.content.strip() and not response.tool_calls:
         response.content = (

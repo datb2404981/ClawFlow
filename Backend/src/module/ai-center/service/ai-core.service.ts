@@ -7,8 +7,11 @@ export class AiCoreService {
   private readonly baseUrl: string;
 
   constructor(private readonly config: ConfigService) {
-    // Nếu deploy, có thể sửa biến môi trường AI_CORE_URL trong .env, mặc định là http://localhost:8000
-    this.baseUrl = this.config.get<string>('AI_CORE_URL') || 'http://localhost:8000';
+    // Ưu tiên AI_CORE_BASE_URL (docker-compose + agents.service); tương thích AI_CORE_URL cũ.
+    this.baseUrl =
+      this.config.get<string>('AI_CORE_BASE_URL')?.trim() ||
+      this.config.get<string>('AI_CORE_URL')?.trim() ||
+      'http://localhost:8000';
   }
 
   /**
@@ -50,6 +53,90 @@ export class AiCoreService {
     } catch (error) {
       this.logger.error(`Không thể kết nối đến AI_Core tại ${url}: ${error}`);
       throw new Error(`Lỗi giao tiếp với AI_Core: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Gọi AI_Core `/chat/stream` (SSE), gọi onChunk từng đoạn; trả về nội dung đầy đủ.
+   */
+  async chatWithAiStream(
+    message: string,
+    userId: string,
+    sessionId: string,
+    onChunk: (chunk: string) => void,
+  ): Promise<string> {
+    const url = `${this.baseUrl}/api/v1/chat/stream`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          session_id: sessionId,
+          message,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(`AI_Core stream HTTP ${response.status}: ${errorText}`);
+        throw new Error(`AI_Core Error ${response.status}`);
+      }
+
+      const body = response.body;
+      if (!body) {
+        throw new Error('AI_Core stream: không có response body');
+      }
+
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let carry = '';
+      let full = '';
+
+      const flushBlock = (block: string) => {
+        for (const line of block.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed.toLowerCase().startsWith('data:')) continue;
+          const payload = trimmed.replace(/^data:\s*/i, '').trim();
+          if (!payload) continue;
+          try {
+            const obj = JSON.parse(payload) as Record<string, unknown>;
+            if (typeof obj.chunk === 'string' && obj.chunk.length > 0) {
+              full += obj.chunk;
+              onChunk(obj.chunk);
+            }
+            if (typeof obj.error === 'string') {
+              throw new Error(obj.error);
+            }
+          } catch (e) {
+            if (e instanceof SyntaxError) continue;
+            throw e;
+          }
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        carry += decoder.decode(value, { stream: true });
+        const blocks = carry.split('\n\n');
+        carry = blocks.pop() ?? '';
+        for (const b of blocks) {
+          if (b.trim()) flushBlock(b);
+        }
+      }
+      if (carry.trim()) {
+        flushBlock(carry);
+      }
+
+      return full;
+    } catch (error) {
+      this.logger.error(`Không thể stream AI_Core tại ${url}: ${error}`);
+      throw new Error(
+        `Lỗi giao tiếp với AI_Core: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 

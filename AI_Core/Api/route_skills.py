@@ -1,18 +1,20 @@
-from fastapi import APIRouter
-from Api.schemas.route_schema import RouteSkillsRequest, RouteSkillsResponse
-from langchain_ollama import ChatOllama
-import os
 import json
 import re
+
+from fastapi import APIRouter
+from langchain_ollama import ChatOllama
+
+from Api.schemas.route_schema import RouteSkillsRequest, RouteSkillsResponse
+from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
 
 router = APIRouter()
 
 @router.post("/route_skills", response_model=RouteSkillsResponse)
 async def route_skills(req: RouteSkillsRequest):
     try:
-        model_name = os.environ.get("OLLAMA_MODEL", "llama3.2:1b-instruct-fp16")
-        base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-        
+        model_name = OLLAMA_MODEL
+        base_url = OLLAMA_BASE_URL
+
         # Tránh lỗi nếu danh sách skill rỗng
         if not req.available_skills:
             return RouteSkillsResponse(status="success", selected_skill_ids=[])

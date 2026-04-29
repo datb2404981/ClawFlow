@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
@@ -25,15 +26,17 @@ import { WorkspaceDocumentsModuleModule } from './module/workspace-documents-mod
       }),
       inject: [ConfigService],
     }),
-    import('@nestjs/bullmq').then(m => m.BullModule.forRootAsync({
+    BullModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
+      useFactory: (configService: ConfigService) => ({
         connection: {
-          url: configService.get<string>('REDIS_URI') || 'redis://localhost:6379',
+          url:
+            configService.get<string>('REDIS_URI')?.trim() ||
+            'redis://127.0.0.1:6379',
         },
       }),
       inject: [ConfigService],
-    })),
+    }),
     UsersModule,
     AiCenterModule,
     WorkspaceDocumentsModuleModule,

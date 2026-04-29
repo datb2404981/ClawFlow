@@ -63,7 +63,7 @@ export function ConfirmDialog({
         onClick={onClose}
       />
       <div
-        className="ring-slate-900/[0.06] relative z-10 w-full min-w-0 max-w-md rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_20px_50px_-12px_rgba(15,23,42,0.2)] ring-1"
+        className="cf-ui-surface relative z-10 w-full min-w-0 max-w-md rounded-2xl p-5 ring-1 ring-black/5"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -72,13 +72,13 @@ export function ConfirmDialog({
       >
         <h2
           id={titleId}
-          className="text-base font-semibold leading-snug text-slate-900"
+          className="text-base font-semibold leading-snug cf-ui-text"
         >
           {title}
         </h2>
         <div
           id={descId}
-          className="mt-2 min-w-0 max-w-full text-sm leading-relaxed text-slate-600 break-words [overflow-wrap:anywhere]"
+          className="cf-ui-text-muted mt-2 min-w-0 max-w-full text-sm leading-relaxed break-words [overflow-wrap:anywhere]"
         >
           {description}
         </div>
@@ -88,7 +88,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            className="cf-ui-btn-ghost rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -100,7 +100,7 @@ export function ConfirmDialog({
               'inline-flex min-w-[5.5rem] items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-[filter,opacity] disabled:opacity-50',
               danger
                 ? 'bg-gradient-to-r from-rose-600 to-rose-700 shadow-sm shadow-rose-500/20 hover:brightness-105'
-                : 'bg-gradient-to-r from-slate-800 to-slate-900 shadow-sm hover:brightness-105',
+                : 'cf-ui-btn-primary shadow-sm',
             ].join(' ')}
           >
             {busy && (

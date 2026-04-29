@@ -64,7 +64,9 @@ function taskRowIcon(status: TaskStatus) {
   }
 }
 
-const STATUS_BADGE: Record<TaskStatus, { label: string; dot: string; text: string; bg: string }> = {
+const STATUS_BADGE: Partial<
+  Record<TaskStatus, { label: string; dot: string; text: string; bg: string }>
+> = {
   scheduled:       { label: 'Scheduled',  dot: 'bg-slate-400',    text: 'text-slate-500',   bg: 'bg-slate-100/70' },
   in_progress:     { label: 'Running',    dot: 'bg-sky-500',      text: 'text-sky-700',     bg: 'bg-sky-50' },
   waiting_approval:{ label: 'Approval',   dot: 'bg-amber-500',    text: 'text-amber-700',   bg: 'bg-amber-50' },
@@ -73,7 +75,7 @@ const STATUS_BADGE: Record<TaskStatus, { label: string; dot: string; text: strin
 }
 
 function TaskStatusBadge({ status }: { status: TaskStatus }) {
-  const s = STATUS_BADGE[status]
+  const s = STATUS_BADGE[status] ?? STATUS_BADGE.scheduled!
   return (
     <span
       className={[
@@ -162,7 +164,7 @@ const taskRowItem =
 const taskRowIdle = 'hover:bg-slate-50 hover:text-slate-900'
 const taskRowActive = 'bg-blue-50/80 font-medium text-[#2563eb]'
 
-const TASK_ROW_STATUS_BORDER: Record<TaskStatus, string> = {
+const TASK_ROW_STATUS_BORDER: Partial<Record<TaskStatus, string>> = {
   scheduled: 'border-l-slate-300',
   in_progress: 'border-l-sky-500',
   waiting_approval: 'border-l-amber-500',
@@ -1265,10 +1267,11 @@ export function WorkspaceAppLayout() {
                       to={`${base}/tasks/${t._id}`}
                       className={[
                         taskRowItem,
-                        TASK_ROW_STATUS_BORDER[t.status],
+                        TASK_ROW_STATUS_BORDER[t.status] ??
+                          TASK_ROW_STATUS_BORDER.scheduled!,
                         tActive ? taskRowActive : taskRowIdle,
                       ].join(' ')}
-                      title={`${t.title} · ${STATUS_BADGE[t.status].label}`}
+                      title={`${t.title} · ${STATUS_BADGE[t.status]?.label ?? STATUS_BADGE.scheduled!.label}`}
                     >
                       {tActive && (
                         <span

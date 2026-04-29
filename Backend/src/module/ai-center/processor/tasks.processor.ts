@@ -14,12 +14,19 @@ export class TasksProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<{ taskId: string, workspaceId: string }, any, string>): Promise<any> {
-    this.logger.log(`🚀 Bắt đầu xử lý Job Queue [${job.id}] cho Task: ${job.data.taskId}`);
+  async process(job: Job<any, any, string>): Promise<any> {
+    if (job.name === 'scheduler_tick') {
+      this.logger.log(`⏰ Scheduler tick bắt đầu [${job.id}]`);
+      return this.tasksService.schedulerTick();
+    }
+
+    // default: process_task
+    const taskId = String(job?.data?.taskId ?? '');
+    this.logger.log(`🚀 Bắt đầu xử lý Job Queue [${job.id}] cho Task: ${taskId}`);
 
     try {
       // Gọi service để chạy task dựa vào taskId
-      await this.tasksService.compileAndRunTaskById(job.data.taskId);
+      await this.tasksService.compileAndRunTaskById(taskId);
       return { success: true };
     } catch (error) {
       const errMessage = error instanceof Error ? error.message : String(error);

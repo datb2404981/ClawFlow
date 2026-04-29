@@ -596,3 +596,233 @@ body::-webkit-scrollbar {
   mask-size: 100% 100%;
   -webkit-mask-size: 100% 100%;
 }
+
+/* === Dual theme — Studio / Chat (không dùng #000 thuần; dark: Deep Navy + Card #161B22) === */
+:root[data-app-theme='light'],
+:root:not([data-app-theme]) {
+  --cf-app-shell-bg: rgb(248 250 252 / 0.95);
+  --cf-app-shell-text: #0f172a;
+  --cf-ui-text: #0f172a;
+  --cf-ui-text-muted: #64748b;
+  --cf-main-bg: transparent;
+  --cf-sidebar-border: rgb(226 232 240 / 0.5);
+  --cf-sidebar-bg-expanded: #ffffff;
+  --cf-sidebar-bg-collapsed: #fafafa;
+  --cf-sidebar-footer-bg: rgb(255 255 255 / 0.92);
+  --cf-sidebar-row-hover: rgb(241 245 249 / 0.95);
+  --cf-sidebar-row-active: rgb(219 234 254 / 0.92);
+  --cf-accent-soft-bg: rgb(239 246 255 / 0.85);
+  --cf-accent-soft-border: rgb(191 219 254 / 0.9);
+  --cf-accent-soft-ring: rgb(191 219 254 / 0.5);
+  --cf-page-bg: #f4f5f7;
+  --cf-panel-surface-bg: #ffffff;
+  --cf-panel-surface-border: rgb(226 232 240 / 0.85);
+  --cf-panel-surface-shadow: 0 8px 32px -12px rgb(15 23 42 / 0.12), 0 0 0 0.5px rgb(15 23 42 / 0.04);
+  --cf-panel-header-bg: rgb(255 255 255 / 0.96);
+  --cf-panel-divider: rgb(241 245 249 / 0.95);
+  --cf-field-bg: rgb(248 250 252 / 0.95);
+  --cf-field-border: rgb(203 213 225 / 0.95);
+  --cf-field-inner-shadow: inset 0 1px 1px rgb(15 23 42 / 0.05);
+  --cf-field-focus-border: #2563eb;
+  --cf-field-focus-glow: 0 0 0 2px rgb(37 99 235 / 0.2);
+  --cf-section-bg: #ffffff;
+  --cf-section-border: rgb(241 245 249 / 0.95);
+  --cf-chat-shell: #ffffff;
+  --cf-chat-shell-border: rgb(15 23 42 / 0.06);
+  --cf-chat-header-bg: rgb(255 255 255 / 0.88);
+  --cf-chat-header-border: rgb(15 23 42 / 0.06);
+  --cf-chat-scroll: transparent;
+  --cf-chat-prose: #1e293b;
+  --cf-chat-muted: #64748b;
+  --cf-chat-heading: #0f172a;
+  --cf-chat-user-bubble: #eef2f7;
+  --cf-chat-user-text: #0f172a;
+  --cf-chat-ai-meta: #475569;
+  --cf-chat-divider: rgb(15 23 42 / 0.06);
+  --cf-chat-code-bg: #0f1117;
+  --cf-chat-code-fg: #e2e8f0;
+  --cf-chat-code-inline-bg: #e2e8f0;
+  --cf-chat-code-inline-fg: #0f172a;
+  --cf-chat-pre-border: rgb(0 168 255 / 0.18);
+  --cf-chat-blockquote-bg: rgb(241 245 249 / 0.85);
+  --cf-chat-blockquote-border: rgb(148 163 184 / 0.5);
+  /* Khối thu gọn “tiến trình tư duy” — card, không trùng nền code đen */
+  --cf-chat-thought-bg: rgb(248 250 252 / 0.98);
+  --cf-chat-thought-fg: #1e293b;
+  --cf-chat-thought-inner-bg: rgb(241 245 249 / 0.95);
+  --cf-chat-thought-border: rgb(203 213 225 / 0.95);
+  --cf-chat-thought-shadow: 0 2px 12px rgb(15 23 42 / 0.06),
+    0 0 0 0.5px rgb(15 23 42 / 0.05);
+  --cf-chat-thought-summary-inset: inset 0 1px 1px rgb(15 23 42 / 0.06);
+  --cf-electric: #00a8ff;
+  --cf-btn-primary: #2563eb;
+  --cf-input-glass: rgb(255 255 255 / 0.55);
+  --cf-input-glass-border: rgb(0 168 255 / 0.32);
+  --cf-input-text: #0f172a;
+  --cf-input-placeholder: rgb(100 116 139 / 0.65);
+  --cf-agent-pill-bg: rgb(15 23 42 / 0.06);
+  --cf-agent-pill-border: rgb(15 23 42 / 0.1);
+  --cf-agent-menu-bg: #ffffff;
+  --cf-agent-menu-border: rgb(15 23 42 / 0.1);
+  --cf-status-line: #64748b;
+  --cf-switch-thumb: #ffffff;
+}
+
+:root[data-app-theme='dark'] {
+  /* Deep Navy canvas — không #000 */
+  --cf-app-shell-bg: #0b0e14;
+  --cf-app-shell-text: #e6edf3;
+  --cf-ui-text: #e6edf3;
+  --cf-ui-text-muted: #8b949e;
+  --cf-main-bg: #0b0e14;
+  --cf-sidebar-border: rgb(48 54 61 / 0.55);
+  --cf-sidebar-bg-expanded: #0f1218;
+  --cf-sidebar-bg-collapsed: #0c0f14;
+  --cf-sidebar-footer-bg: rgb(15 18 24 / 0.92);
+  --cf-sidebar-row-hover: rgb(255 255 255 / 0.045);
+  --cf-sidebar-row-active: rgb(37 99 235 / 0.22);
+  --cf-accent-soft-bg: rgb(37 99 235 / 0.14);
+  --cf-accent-soft-border: rgb(59 130 246 / 0.35);
+  --cf-accent-soft-ring: rgb(34 211 238 / 0.18);
+  --cf-page-bg: #0b0e14;
+  --cf-panel-surface-bg: #161b22;
+  --cf-panel-surface-border: rgb(48 54 61 / 0.85);
+  --cf-panel-surface-shadow: 0 18px 56px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --cf-panel-header-bg: rgb(11 14 20 / 0.55);
+  --cf-panel-divider: rgb(48 54 61 / 0.75);
+  --cf-field-bg: rgb(22 27 34 / 0.92);
+  --cf-field-border: rgb(51 65 85 / 0.65);
+  --cf-field-inner-shadow: inset 0 1px 3px rgb(0 0 0 / 0.42);
+  --cf-field-focus-border: rgb(34 211 238 / 0.55);
+  --cf-field-focus-glow: 0 0 0 1px rgb(34 211 238 / 0.28), 0 0 22px rgb(14 165 233 / 0.14);
+  --cf-section-bg: #161b22;
+  --cf-section-border: rgb(48 54 61 / 0.55);
+  --cf-chat-shell: #161b22;
+  --cf-chat-shell-border: rgb(48 54 61 / 0.55);
+  --cf-chat-header-bg: rgb(22 27 34 / 0.88);
+  --cf-chat-header-border: rgb(48 54 61 / 0.5);
+  --cf-chat-scroll: transparent;
+  --cf-chat-prose: #e6edf3;
+  --cf-chat-muted: #8b949e;
+  --cf-chat-heading: #e6edf3;
+  --cf-chat-user-bubble: #21262d;
+  --cf-chat-user-text: #e6edf3;
+  --cf-chat-ai-meta: #8b949e;
+  --cf-chat-divider: rgb(48 54 61 / 0.55);
+  --cf-chat-code-bg: #0d1117;
+  --cf-chat-code-fg: #e6edf3;
+  --cf-chat-code-inline-bg: #30363d;
+  --cf-chat-code-inline-fg: #e6edf3;
+  --cf-chat-pre-border: rgb(34 211 238 / 0.28);
+  --cf-chat-blockquote-bg: rgb(22 27 34 / 0.65);
+  --cf-chat-blockquote-border: rgb(83 100 120 / 0.45);
+  --cf-chat-thought-bg: #161b22;
+  --cf-chat-thought-fg: #e6edf3;
+  --cf-chat-thought-inner-bg: #12151c;
+  --cf-chat-thought-border: rgb(48 54 61 / 0.85);
+  --cf-chat-thought-shadow: 0 10px 28px rgb(0 0 0 / 0.38),
+    0 0 0 1px rgb(255 255 255 / 0.04);
+  --cf-chat-thought-summary-inset: inset 0 1px 3px rgb(0 0 0 / 0.35);
+  --cf-electric: #38bdf8;
+  --cf-btn-primary: #2563eb;
+  --cf-input-glass: rgb(22 27 34 / 0.78);
+  --cf-input-glass-border: rgb(34 211 238 / 0.22);
+  --cf-input-text: #e6edf3;
+  --cf-input-placeholder: rgb(139 148 158 / 0.65);
+  --cf-agent-pill-bg: rgb(255 255 255 / 0.05);
+  --cf-agent-pill-border: rgb(83 100 120 / 0.45);
+  --cf-agent-menu-bg: #161b22;
+  --cf-agent-menu-border: rgb(48 54 61 / 0.85);
+  --cf-status-line: #8b949e;
+  --cf-switch-thumb: #e6edf3;
+  /* Material-style tokens (Task workspace / automation) — dark studio */
+  --color-cf-surface: #0b0e14;
+  --color-cf-on-surface: #e6edf3;
+  --color-cf-on-surface-variant: #8b949e;
+  --color-cf-primary: #3b82f6;
+  --color-cf-on-primary: #ffffff;
+  --color-cf-primary-container: #1d4ed8;
+  --color-cf-surface-container-low: #12151c;
+  --color-cf-surface-container: #161b22;
+  --color-cf-surface-container-high: #21262d;
+  --color-cf-surface-container-highest: #30363d;
+  --color-cf-surface-container-lowest: #161b22;
+  --color-cf-outline: #8b949e;
+  --color-cf-outline-variant: #30363d;
+}
+
+:root[data-app-theme='dark'] body {
+  background-color: var(--cf-app-shell-bg);
+  color: var(--cf-ui-text);
+}
+
+:root[data-app-theme='light'] body,
+:root:not([data-app-theme]) body {
+  background-color: var(--color-oc-white);
+  color: var(--color-body);
+}
+
+/* —— UI kit: panel / field / section (đồng bộ sidebar + menu + input) —— */
+.cf-ui-surface {
+  background: var(--cf-panel-surface-bg);
+  border: 1px solid var(--cf-panel-surface-border);
+  color: var(--cf-ui-text);
+  box-shadow: var(--cf-panel-surface-shadow);
+}
+.cf-ui-surface-header {
+  border-bottom: 1px solid var(--cf-panel-divider);
+  background: var(--cf-panel-header-bg);
+}
+.cf-ui-field {
+  background: var(--cf-field-bg);
+  border: 1px solid var(--cf-field-border);
+  color: var(--cf-ui-text);
+  box-shadow: var(--cf-field-inner-shadow);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.cf-ui-field::placeholder {
+  color: var(--cf-input-placeholder);
+}
+.cf-ui-field:focus,
+.cf-ui-field:focus-visible {
+  outline: none;
+  border-color: var(--cf-field-focus-border);
+  box-shadow: var(--cf-field-focus-glow), var(--cf-field-inner-shadow);
+}
+.cf-ui-section {
+  background: var(--cf-section-bg);
+  border: 1px solid var(--cf-section-border);
+  color: var(--cf-ui-text);
+}
+.cf-ui-menu-row:hover {
+  background: var(--cf-sidebar-row-hover);
+}
+.cf-ui-text {
+  color: var(--cf-ui-text);
+}
+.cf-ui-text-muted {
+  color: var(--cf-ui-text-muted);
+}
+.cf-ui-divider {
+  border-color: var(--cf-panel-divider);
+}
+.cf-ui-btn-primary {
+  background: var(--cf-btn-primary);
+  color: #fff;
+}
+.cf-ui-btn-primary:hover {
+  filter: brightness(1.06);
+}
+.cf-ui-btn-ghost {
+  border: 1px solid rgb(100 116 139 / 0.35);
+  background: transparent;
+  color: var(--cf-ui-text);
+}
+:root[data-app-theme='dark'] .cf-ui-btn-ghost {
+  border-color: rgb(83 100 120 / 0.45);
+}
+.cf-ui-btn-ghost:hover {
+  background: var(--cf-sidebar-row-hover);
+}

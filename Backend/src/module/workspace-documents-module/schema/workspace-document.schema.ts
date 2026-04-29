@@ -67,4 +67,13 @@ export class KnowledgeChunk {
   updatedAt: Date;
 }
 export const KnowledgeChunkSchema = SchemaFactory.createForClass(KnowledgeChunk);
+
+/** Full-text (MongoDB `$text`) bổ sung cho vector RAG — `default_language: none` hợp tiếng Việt hơn stem English. */
+KnowledgeChunkSchema.index(
+  { chunk_text: 'text' },
+  {
+    name: 'knowledge_chunks_chunk_text_text',
+    default_language: 'none',
+  },
+);
 export type KnowledgeChunkDocument = HydratedDocument<KnowledgeChunk>;

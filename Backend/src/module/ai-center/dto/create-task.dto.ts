@@ -3,6 +3,7 @@ import {
   IsMongoId,
   IsNotEmpty,
   IsOptional,
+  IsBoolean,
   IsString,
 } from 'class-validator';
 import { TASK_STATUS_VALUES } from '../schema/ai-center.schema';
@@ -27,6 +28,18 @@ export class CreateTaskDto {
   @IsOptional()
   @IsIn([...TASK_STATUS_VALUES])
   status?: (typeof TASK_STATUS_VALUES)[number];
+
+  @IsOptional()
+  @IsBoolean()
+  schedule_enabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  schedule_cron?: string;
+
+  @IsOptional()
+  @IsString()
+  next_run_at?: string;
 
   @IsOptional()
   @IsString()

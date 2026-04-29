@@ -21,6 +21,14 @@
       crossorigin
     />
     <title>ClawFlow</title>
+    <!-- Tránh nháy theme sai trước khi React hydrate (đọc Persistence từ localStorage). -->
+    <script>
+      try {
+        var k = 'clawflow.appTheme';
+        var t = localStorage.getItem(k);
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-app-theme', t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

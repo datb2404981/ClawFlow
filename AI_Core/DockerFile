@@ -18,5 +18,6 @@ COPY . .
 # Mở cổng 8000 cho AI Core
 EXPOSE 8000
 
-# Chạy server (ví dụ dùng FastAPI hoặc script python)
-CMD ["python", "main.py"]
+# Gọi uvicorn trực tiếp — tránh `python main.py` (uvicorn.spawn) chạy bootstrap `main` hai lần → log LangSmith/Uvicorn bị lặp.
+# Cổng theo biến PORT (docker-compose đặt 8000).
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

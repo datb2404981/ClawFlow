@@ -14,6 +14,8 @@ import { CreateTaskDto } from '../dto/create-task.dto';
 import { ListTasksQueryDto } from '../dto/list-tasks-query.dto';
 import { TaskScopeQueryDto } from '../dto/task-scope-query.dto';
 import { UpdateTaskDto } from '../dto/update-task.dto';
+import { AppendTaskMessageDto } from '../dto/append-task-message.dto';
+import { HumanAnswerDto } from '../dto/human-answer.dto';
 import { TasksService } from '../service/tasks.service';
 
 @Controller('tasks')
@@ -27,6 +29,22 @@ export class TasksController {
     @Body() dto: CreateTaskDto,
   ) {
     return this.tasksService.create(user._id, dto);
+  }
+
+  @Post(':taskId/messages')
+  @ResponseMessage('Đã gửi tin nhắn')
+  appendMessage(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Query() q: TaskScopeQueryDto,
+    @Body() dto: AppendTaskMessageDto,
+  ) {
+    return this.tasksService.appendUserMessage(
+      user._id,
+      taskId,
+      q.workspace_id,
+      dto.content,
+    );
   }
 
   @Get()
@@ -57,6 +75,42 @@ export class TasksController {
     @Body() dto: UpdateTaskDto,
   ) {
     return this.tasksService.update(user._id, taskId, q.workspace_id, dto);
+  }
+
+  @Post(':taskId/human-answer')
+  @ResponseMessage('Đã gửi câu trả lời cho AI (draft loop)')
+  humanAnswer(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Query() q: TaskScopeQueryDto,
+    @Body() dto: HumanAnswerDto,
+  ) {
+    return this.tasksService.humanAnswer(
+      user._id,
+      taskId,
+      q.workspace_id,
+      dto.answer,
+    );
+  }
+
+  @Post(':taskId/approve')
+  @ResponseMessage('Đã approve task')
+  approve(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Query() q: TaskScopeQueryDto,
+  ) {
+    return this.tasksService.approveTask(user._id, taskId, q.workspace_id);
+  }
+
+  @Post(':taskId/reject')
+  @ResponseMessage('Đã reject task')
+  reject(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Query() q: TaskScopeQueryDto,
+  ) {
+    return this.tasksService.rejectTask(user._id, taskId, q.workspace_id);
   }
 
   @Delete(':taskId')

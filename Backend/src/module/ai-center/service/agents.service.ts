@@ -180,9 +180,18 @@ export class AgentsService {
     return rows as object[];
   }
 
-  async findAgentById(_id: string): Promise<Agents> {
+  async findAgentById(
+    userId: string,
+    _id: string,
+    workspaceId: string,
+  ): Promise<Agents> {
+    await this.workspacesService.findOne(userId, workspaceId);
+    const wid = toObjectId(workspaceId);
     const agent = await this.agentsModel
-      .findOne({ _id })
+      .findOne({
+        _id,
+        $or: [{ workspace_id: wid }, { workspace_id: workspaceId }],
+      })
       .populate('enabled_skill_template_ids')
       .exec();
     if (!agent) {

@@ -9,7 +9,10 @@
 #              — tránh dùng node_modules từ host. Sau khi thêm dependency: `docker compose run --rm
 #              backend npm install` hoặc `docker volume rm <project>_backend_node_modules` rồi up lại.
 #   • ai_core:  mount ./AI_Core + uvicorn `reload=True` trong main.py
-#   • frontend: mount ./Frontend + Vite (node_modules nội bộ / anonymous volume)
+#   • frontend: mount ./Frontend + named volume `frontend_node_modules_v2` (giống backend).
+#     Nếu Vite báo thiếu gói (vd. socket.io-client): `docker compose down` rồi
+#     `docker volume rm <project>_frontend_node_modules_v2` và `docker compose up frontend`,
+#     hoặc chỉ cần pull compose mới (đổi tên volume = node_modules được tạo lại).
 # Image prod chỉ build (dist trong image), không mount: dùng `DockerFile` + `npm run start:prod` — tách file compose riêng hoặc `docker build -f Backend/DockerFile` khi deploy.
 # Ollama trên host (mặc định cổng 11434): AI_Core dùng OLLAMA_BASE_URL dưới đây; chạy Python trên host
 # thì 127.0.0.1:11434 ổn, không cần set thêm.
@@ -54,6 +57,8 @@ services:
     environment:
       JWT_SECRET: ${JWT_SECRET:-clawflow-docker-dev-only-change-me}
       AI_CORE_BASE_URL: http://ai_core:8000
+      # BullMQ: trong mạng compose dùng hostname `redis`, không dùng 127.0.0.1
+      REDIS_URI: ${REDIS_URI:-redis://redis:6379}
       NODE_ENV: development
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
@@ -63,6 +68,7 @@ services:
       - backend_dist:/app/dist
     command: sh -c "npm install && npm run start:dev"
     depends_on:
+      - redis
       - ai_core
     networks:
       - openclaw_network
@@ -84,6 +90,8 @@ services:
       WATCHFILES_FORCE_POLLING: 'true'
       # Gọi Ollama cài trên macOS/Windows (ngoài container)
       OLLAMA_BASE_URL: http://host.docker.internal:11434
+      # LangSmith: subprocess `reload` đôi khi làm mất/ lệch trace — tắt reload trong Docker (bật lại = xóa dòng này).
+      UVICORN_RELOAD: "false"
     volumes:
       - ./AI_Core:/app
     networks:
@@ -103,7 +111,9 @@ services:
       CHOKIDAR_USEPOLLING: 'true'
     volumes:
       - ./Frontend:/app
-      - /app/node_modules
+      - frontend_node_modules_v2:/app/node_modules
+    # Luôn cài theo package-lock trên host (bind mount) — volume named tránh “stuck” khó xóa như anonymous.
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
     depends_on:
       - backend
     networks:
@@ -117,4 +127,5 @@ volumes:
   mongo_data:
   backend_node_modules:
   backend_dist:
+  frontend_node_modules_v2:
   redis_data:

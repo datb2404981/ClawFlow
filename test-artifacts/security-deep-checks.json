@@ -1,0 +1,21 @@
+{
+  "findings": [
+    {
+      "check": "idor_agent_get_by_id_cross_user",
+      "status": 200,
+      "vulnerable": true,
+      "response_excerpt": ""
+    },
+    {
+      "check": "append_message_oversized_payload",
+      "status": 201,
+      "vulnerable": true,
+      "note": "Accepted very large content"
+    },
+    {
+      "check": "invalid_task_id_handling",
+      "status": 400,
+      "vulnerable": false
+    }
+  ]
+}

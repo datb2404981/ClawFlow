@@ -30,6 +30,7 @@ import { WorkspaceKnowledgeStorageService } from './service/workspace-knowledge-
 import { GeminiEmbeddingService } from './service/gemini-embedding.service';
 import { KnowledgeFileParserService } from './service/knowledge-file-parser.service';
 import { WorkspaceKnowledgeIngestService } from './service/workspace-knowledge-ingest.service';
+import { AppSettingsController } from './controller/app-settings.controller';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { WorkspaceKnowledgeIngestService } from './service/workspace-knowledge-i
     AuthController,
     WorkspacesController,
     WorkspaceKnowledgeController,
+    AppSettingsController,
   ],
   providers: [
     UsersService,
@@ -75,6 +77,7 @@ import { WorkspaceKnowledgeIngestService } from './service/workspace-knowledge-i
     UsersService,
     AuthService,
     WorkspacesService,
+    GeminiEmbeddingService,
     PassportModule,
     JwtModule,
   ],

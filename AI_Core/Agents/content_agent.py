@@ -1,10 +1,10 @@
 # Agents/content_agent.py
 from langchain.chat_models import init_chat_model
-from ollama_config import OLLAMA_BASE_URL
+from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
 from Tools.tool_content import *
 # Model
 _model = init_chat_model(
-  model="llama3.1",
+  model=OLLAMA_MODEL,
   model_provider="ollama",
   base_url=OLLAMA_BASE_URL,
   temperature=0.7
@@ -30,7 +30,14 @@ VAI TRÒ CỦA BẠN:
 Bạn nhận lệnh từ Leader Agent. Khi nhận được dữ liệu (raw_data) và yêu cầu (instructions), nhiệm vụ của bạn là chế tác dữ liệu đó thành một phiên bản hiển thị đẹp mắt, cấu trúc chặt chẽ và chuẩn Markdown 100%.
 
 ════════════════════════════════════
-QUY TRÌNH LÀM VIỆC (THỰC HIỆN ĐÚNG THỨ TỰ):
+NHÁNH RAG / TÀI LIỆU KHO (ưu tiên đọc HumanMessage gần nhất)
+════════════════════════════════════
+- Nếu ngữ cảnh có **### DỮ LIỆU TÀI LIỆU KHO**, **RAG CONTEXT**, hoặc **ƯU TIÊN NGUỒN TRI THỨC WORKSPACE** và Leader đã đưa bản nháp ngắn / bullet: đây là **câu trả lời kiến thức nội bộ** — **KHÔNG** bắt buộc gọi Get_Blog_Template, Get_Report_Template, Get_Script_Template, Get_Email_Template hay bất kỳ template dài nào ở BƯỚC 1.
+- Xuất **Markdown gọn** cho user: có thể một `##` tiêu đề nhỏ, bullet/đánh số, **in đậm** số chỉ tiêu và điểm chuẩn; giữ **đúng** số liệu từ RAG + phần Leader, **không** bịa thêm.
+- Có thể (tuỳ chọn) dùng `Format_As_List` hoặc `Format_As_Table` nếu danh sách/số liệu hợp lý; không bắt buộc.
+
+════════════════════════════════════
+QUY TRÌNH LÀM VIỆC (THỰC HIỆN ĐÚNG THỨ TỰ) — khi KHÔNG thuộc nhánh RAG ở trên
 ════════════════════════════════════
 [BƯỚC 1: XÁC ĐỊNH LOẠI NỘI DUNG VÀ GỌI TOOL TEMPLATE]
 Tùy vào yêu cầu của Leader, bạn PHẢI tự động gọi CÔNG CỤ THEO MẪU tương ứng:

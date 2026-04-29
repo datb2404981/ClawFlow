@@ -14,4 +14,49 @@ export interface IUser {
   avatar_url?: string;
   createdAt?: Date;
   updatedAt?: Date;
+
+  /** Bật/tắt connector bên thứ 3 — áp dụng global theo user (không theo workspace). */
+  integration_gmail_enabled?: boolean;
+  integration_google_calendar_enabled?: boolean;
+  integration_drive_enabled?: boolean;
+  integration_notion_enabled?: boolean;
+
+  integration_connections?: {
+    gmail?: {
+      connected?: boolean;
+      granted_scopes?: string[];
+      needs_reauth?: boolean;
+      connected_at?: Date;
+      expires_at?: Date;
+      last_error?: string;
+      external_account_email?: string;
+    };
+    google_calendar?: {
+      connected?: boolean;
+      granted_scopes?: string[];
+      needs_reauth?: boolean;
+      connected_at?: Date;
+      expires_at?: Date;
+      last_error?: string;
+      external_account_email?: string;
+    };
+    google_drive?: {
+      connected?: boolean;
+      granted_scopes?: string[];
+      needs_reauth?: boolean;
+      connected_at?: Date;
+      expires_at?: Date;
+      last_error?: string;
+      external_account_email?: string;
+    };
+    notion?: {
+      connected?: boolean;
+      granted_scopes?: string[];
+      needs_reauth?: boolean;
+      connected_at?: Date;
+      expires_at?: Date;
+      last_error?: string;
+      external_account_email?: string;
+    };
+  };
 }

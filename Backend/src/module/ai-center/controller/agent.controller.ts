@@ -22,8 +22,12 @@ export class AgentsController {
   }
 
   @Get(':id')
-  findAgentById(@Param('id') id: string): Promise<Agents> {
-    return this.agentsService.findAgentById(id);
+  findAgentById(
+    @User() user: IUser,
+    @Param('id') id: string,
+    @Query() q: ListAgentsQueryDto,
+  ): Promise<Agents> {
+    return this.agentsService.findAgentById(user._id, id, q.workspace_id);
   }
 
   @Post()

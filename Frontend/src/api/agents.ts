@@ -34,8 +34,13 @@ export async function fetchAgents(
   return data.data
 }
 
-export async function fetchAgent(id: string): Promise<Agent> {
-  const { data } = await api.get<ApiEnvelope<Agent>>(`/agents/${id}`)
+export async function fetchAgent(
+  id: string,
+  workspaceId: string,
+): Promise<Agent> {
+  const { data } = await api.get<ApiEnvelope<Agent>>(`/agents/${id}`, {
+    params: { workspace_id: workspaceId },
+  })
   return data.data
 }
 

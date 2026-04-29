@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
 import os
 import requests
-from state import client
+from mongo_client import client
 from bson.objectid import ObjectId
 
 @tool

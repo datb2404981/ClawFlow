@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   Bolt,
   Bot,
-  Info,
+  ChevronDown,
+  ChevronRight,
+  Maximize2,
   Mail,
   Paperclip,
   PanelRightClose,
@@ -15,23 +19,61 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { fetchAgent } from '../../api/agents'
-import { fetchTask, type Task } from '../../api/tasks'
-import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
 
-function formatTs(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('vi-VN', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
+function AgentMessageContent({ content }: { content: string }) {
+  let thought = '';
+  let mainContent = content;
+
+  const thoughtMatch = content.match(/<thought>([\s\S]*?)<\/thought>/);
+  if (thoughtMatch) {
+    thought = thoughtMatch[1].trim();
+    mainContent = content.replace(/<thought>[\s\S]*?<\/thought>/, '').trim();
+  }
+
+  const [thoughtOpen, setThoughtOpen] = useState(false);
+
+  return (
+    <div className="w-full">
+      {thought && (
+        <details 
+          className="mb-4 group [&_summary::-webkit-details-marker]:hidden"
+          open={thoughtOpen}
+          onToggle={(e) => setThoughtOpen(e.currentTarget.open)}
+        >
+          <summary className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 group-open:bg-slate-200 transition-colors">
+              {thoughtOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </span>
+            Thought Process
+          </summary>
+          <div className="mt-3 rounded-xl bg-slate-50/50 p-4 text-sm text-slate-600 border border-slate-100">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={TASK_CHAT_MD_COMPONENTS}>
+              {thought}
+            </ReactMarkdown>
+          </div>
+        </details>
+      )}
+      {mainContent && (
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={TASK_CHAT_MD_COMPONENTS}>
+          {mainContent}
+        </ReactMarkdown>
+      )}
+    </div>
+  );
 }
 
-const STATUS_LINES: Record<
-  Task['status'],
-  { label: string; dot: string }
+import { fetchAgent, fetchAgents, type Agent } from '../../api/agents'
+import {
+  appendTaskMessage,
+  fetchTask,
+  taskToChatMessages,
+  type Task,
+} from '../../api/tasks'
+import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
+import { TASK_CHAT_MD_COMPONENTS } from './taskChatMarkdown'
+
+const STATUS_LINES: Partial<
+  Record<Task['status'], { label: string; dot: string }>
 > = {
   scheduled: { label: 'Đã lên lịch', dot: 'bg-slate-400' },
   in_progress: { label: 'Đang chạy', dot: 'bg-sky-500' },
@@ -237,8 +279,17 @@ export function TaskWorkspacePage() {
   const [agentName, setAgentName] = useState('')
   const [err, setErr] = useState('')
   const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [composerFsOpen, setComposerFsOpen] = useState(false)
   /** Mặc định đóng: tránh overlay full màn (<md) che khu chat lúc vào trang. */
   const [panelOpen, setPanelOpen] = useState(false)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false)
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
+  const composerTaRef = useRef<HTMLTextAreaElement>(null)
+  const modalComposerTaRef = useRef<HTMLTextAreaElement>(null)
+  const agentPickerRef = useRef<HTMLButtonElement>(null)
+  const agentPopoverRef = useRef<HTMLDivElement>(null)
   const base = `/app/w/${workspaceId}`
 
   useEffect(() => {
@@ -249,9 +300,11 @@ export function TaskWorkspacePage() {
         const t = await fetchTask(taskId, workspaceId)
         setTask(t)
         try {
-          const a = await fetchAgent(t.agent_id)
+          const a = await fetchAgent(t.agent_id, workspaceId)
+          setSelectedAgent(a)
           setAgentName(a.name)
         } catch {
+          setSelectedAgent(null)
           setAgentName('')
         }
       } catch (e) {
@@ -261,7 +314,90 @@ export function TaskWorkspacePage() {
     })()
   }, [taskId, workspaceId])
 
-  const statusBadge = task ? STATUS_LINES[task.status] : null
+  useEffect(() => {
+    if (!workspaceId) return
+    let mounted = true
+    void (async () => {
+      try {
+        const list = await fetchAgents(workspaceId)
+        if (mounted) setAgents(list)
+      } catch {
+        if (mounted) setAgents([])
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as Node | null
+      if (!agentPickerRef.current || !agentPopoverRef.current) return
+      if (agentPickerRef.current.contains(t)) return
+      if (agentPopoverRef.current.contains(t)) return
+      setAgentPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [])
+
+  function getInitials(name?: string) {
+    if (!name) return ''
+    return name
+      .split(' ')
+      .map((s) => s[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase()
+  }
+
+  function handleSelectAgent(a: Agent) {
+    setSelectedAgent(a)
+    setAgentName(a.name)
+    setAgentPickerOpen(false)
+  }
+
+  const statusBadge = task
+    ? STATUS_LINES[task.status] ?? STATUS_LINES.scheduled!
+    : null
+  const chatMessages = task ? taskToChatMessages(task) : []
+
+  const autoResize = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      if (!el) return
+      el.style.height = 'auto'
+      const max = composerFsOpen ? Math.floor(window.innerHeight * 0.55) : 220
+      el.style.height = `${Math.min(el.scrollHeight, max)}px`
+    },
+    [composerFsOpen],
+  )
+
+  useLayoutEffect(() => {
+    autoResize(composerTaRef.current)
+  }, [draft, composerFsOpen, autoResize])
+
+  useLayoutEffect(() => {
+    if (!composerFsOpen) return
+    autoResize(modalComposerTaRef.current)
+  }, [draft, composerFsOpen, autoResize])
+
+  const submitUpdate = async () => {
+    const text = draft.trim()
+    if (!text || !task || !workspaceId || sending) return
+    setSending(true)
+    try {
+      const updated = await appendTaskMessage(task._id, workspaceId, text)
+      setTask(updated)
+      setDraft('')
+      setComposerFsOpen(false)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Không gửi được tin nhắn')
+    } finally {
+      setSending(false)
+    }
+  }
 
   if (err) {
     return (
@@ -374,109 +510,181 @@ export function TaskWorkspacePage() {
         </header>
 
         <div className="scrollbar-thin flex-1 space-y-8 overflow-y-auto p-4 sm:p-8">
-          {/* Nội dung từ GET /tasks/:id — không còn đoạn chat mẫu */}
-          {/* User Message (Câu hỏi/Mô tả task) */}
-          <div className="flex w-full justify-end">
-            <div className="flex max-w-[85%] justify-end sm:max-w-3xl">
-              <div className="flex min-w-0 flex-col items-end gap-2 pt-0.5">
-                <div className="rounded-[1.5rem] rounded-tr-[0.25rem] bg-slate-100 px-5 py-3.5 sm:px-6 sm:py-4">
-                  {task.description?.trim() ? (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
-                      {task.description}
-                    </p>
-                  ) : (
-                    <p className="text-sm italic text-slate-500">
-                      Không có nội dung.
-                    </p>
-                  )}
-                </div>
-              </div>
+          {chatMessages.length === 0 ? (
+            <div className="flex w-full items-center justify-center py-10">
+              <p className="text-sm italic text-slate-500">
+                Chưa có nội dung hội thoại.
+              </p>
             </div>
-          </div>
+          ) : (
+            chatMessages.map((msg, idx) =>
+              msg.role === 'user' ? (
+                <div key={idx} className="flex w-full justify-end">
+                  <div className="flex max-w-[85%] justify-end sm:max-w-3xl">
+                    <div className="rounded-2xl bg-white px-5 py-3.5 sm:px-6 sm:py-4 shadow-[0_10px_30px_rgba(16,24,40,0.04)]">
+                      <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
+                        {msg.content}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div key={idx} className="mt-8 flex w-full justify-start">
+                  <div className="flex w-full max-w-[85%] flex-col gap-2 sm:max-w-4xl">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+                        <Bot className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </div>
+                      <span className="text-sm font-bold text-slate-700">
+                        {agentName.trim() || 'Trợ lý AI'}
+                      </span>
+                    </div>
+                    <div className="pl-9 text-slate-800">
+                      <AgentMessageContent content={msg.content} />
+                    </div>
+                  </div>
+                </div>
+              ),
+            )
+          )}
 
-          {/* AI Response Message */}
-          <div className="mt-6 flex w-full justify-start">
-            <div className="flex max-w-[85%] gap-3 sm:max-w-3xl md:gap-4">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-100 bg-indigo-50/80 text-indigo-600 shadow-sm sm:h-10 sm:w-10">
-                <Bot className="h-[18px] w-[18px] sm:h-[20px] sm:w-[20px]" strokeWidth={2} aria-hidden />
-              </div>
-              <div className="flex min-w-0 flex-col gap-1.5 pt-1 sm:pt-1.5">
-                <div className="text-[13px] font-semibold text-slate-700 sm:text-sm">
-                  {agentName.trim() || 'Trợ lý AI'}
+          {(task.status === 'scheduled' || task.status === 'in_progress') && (
+            <div className="mt-2 flex w-full justify-start">
+              <div className="flex max-w-[85%] gap-3 sm:max-w-3xl md:gap-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-100 bg-indigo-50/80 text-indigo-600 shadow-sm sm:h-10 sm:w-10">
+                  <Bot className="h-[18px] w-[18px] sm:h-[20px] sm:w-[20px]" strokeWidth={2} aria-hidden />
                 </div>
                 <div className="rounded-[1.5rem] rounded-tl-[0.25rem] border border-slate-100 bg-white px-5 py-3.5 shadow-sm sm:px-6 sm:py-4">
-                  {task.status === 'scheduled' || task.status === 'in_progress' ? (
-                    <div className="flex items-center gap-1.5 px-1 py-1">
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.2s]" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.4s]" />
-                    </div>
-                  ) : task.status === 'failed' ? (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-red-600">
-                      Xin lỗi, đã xảy ra lỗi trong quá trình xử lý. Bạn vui lòng thử lại nhé.
-                    </p>
-                  ) : task.status === 'waiting_approval' ? (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-amber-700">
-                      Công việc đang chờ được phê duyệt để tiếp tục...
-                    </p>
-                  ) : (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
-                      ✅ Công việc đã được tiếp nhận và xử lý.
-                      {/* Có thể tích hợp kết quả API của task vào đây sau */}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-1.5 px-1 py-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.2s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.4s]" />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-
-
+          )}
 
           <div className="h-6 shrink-0" aria-hidden />
         </div>
 
-        <div className="shrink-0 bg-[var(--color-cf-surface-container-lowest,#ffffff)] p-4 pt-0 sm:p-6 sm:pt-0">
-          <div className="relative flex flex-col rounded-full bg-[var(--color-cf-surface-container-low,#f3f4f5)] px-1 py-2 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all focus-within:bg-[var(--color-cf-surface-container-lowest,#ffffff)] focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--color-cf-primary)_22%,transparent)] sm:flex-row sm:items-center sm:rounded-full">
-            <button
-              type="button"
-              disabled
-              className="pointer-events-none hidden h-10 w-10 shrink-0 items-center justify-center self-center rounded-full text-[var(--color-cf-on-surface-variant,#434656)] opacity-50 sm:flex"
-              title="Đính kèm — sớm có"
-              aria-disabled
-            >
-              <Paperclip className="h-5 w-5" aria-hidden strokeWidth={2} />
-            </button>
-            <input
-              className="min-w-0 flex-1 border-none bg-transparent py-3 pl-4 pr-3 text-base text-[var(--color-cf-on-surface,#191c1d)] outline-none ring-0 placeholder:text-[color-mix(in_srgb,var(--color-cf-on-surface-variant)_55%,transparent)]"
-              placeholder={
-                agentName
-                  ? `Nhắn tới ${agentName}…`
-                  : 'Nhắn tới agent…'
-              }
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  setDraft('')
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-cf-primary,#003ec7)] text-white shadow-md transition-colors hover:bg-[var(--color-cf-primary-container,#0052ff)] sm:mr-0.5"
-              disabled
-              aria-label="Gửi (sớm có)"
-              title="Gửi — nối AI_Core đang làm"
-            >
-              <Send className="h-5 w-5 shrink-0" aria-hidden strokeWidth={2} />
-            </button>
-          </div>
-          <div className="mt-3 text-center text-[0.65rem] font-medium uppercase tracking-widest text-[var(--color-cf-on-surface-variant,#434656)]">
-            AI có thể sai sót · Hãy kiểm tra thông tin quan trọng.
+        <div className="shrink-0 px-4 pb-6 pt-2 sm:px-8 sm:pb-8 sm:pt-4">
+          <div className="mx-auto flex w-full max-w-4xl flex-col items-center">
+            <div className="relative flex w-full items-end gap-2 rounded-2xl bg-[#161B22] p-2 shadow-[0_10px_40px_rgba(0,0,0,0.1)] ring-1 ring-white/10 transition-all focus-within:ring-2 focus-within:ring-blue-500/50">
+              <button
+                type="button"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
+                title="Đính kèm"
+              >
+                <Paperclip className="h-[18px] w-[18px]" aria-hidden strokeWidth={2} />
+              </button>
+              
+              <textarea
+                ref={composerTaRef}
+                rows={1}
+                className="min-h-[40px] max-h-[220px] w-full resize-none border-none bg-transparent py-2.5 text-[0.9375rem] leading-relaxed text-slate-200 outline-none ring-0 placeholder:text-slate-500"
+                placeholder={agentName ? `Nhắn tới ${agentName}…` : 'Nhắn tới agent…'}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !sending) {
+                    e.preventDefault()
+                    void submitUpdate()
+                  }
+                }}
+              />
+              
+              <div className="flex h-10 shrink-0 items-center gap-1 pr-1">
+                <button
+                  type="button"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
+                  aria-label="Phóng to ô nhập"
+                  title="Phóng to"
+                  onClick={() => setComposerFsOpen(true)}
+                >
+                  <Maximize2 className="h-4 w-4" aria-hidden strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-blue-400 transition-colors hover:bg-blue-500/20 hover:text-blue-300 disabled:opacity-40"
+                  disabled={!draft.trim() || sending}
+                  onClick={() => void submitUpdate()}
+                  title="Gửi"
+                >
+                  <Send className="h-4 w-4 shrink-0" aria-hidden strokeWidth={2} />
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 text-center text-[0.7rem] font-medium text-[var(--color-cf-on-surface-variant,#434656)]">
+              AI có thể sai sót · Hãy kiểm tra thông tin quan trọng.
+            </div>
           </div>
         </div>
       </section>
+
+      {composerFsOpen && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#0d1117]/80 p-4 backdrop-blur-md sm:p-8 md:p-12 pl-[calc(env(safe-area-inset-left)+1rem)] pr-[calc(env(safe-area-inset-right)+1rem)]"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setComposerFsOpen(false)
+          }}
+        >
+          <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#161B22] shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-6 py-4">
+              <div className="text-base font-medium text-slate-200">
+                Soạn thảo toàn màn hình
+              </div>
+              <button
+                type="button"
+                onClick={() => setComposerFsOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Đóng"
+              >
+                <X className="h-5 w-5" aria-hidden strokeWidth={2} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-transparent p-6 sm:p-8">
+              <textarea
+                ref={modalComposerTaRef}
+                className="h-full w-full resize-none border-none bg-transparent text-lg leading-relaxed text-slate-200 outline-none placeholder:text-slate-600 focus:ring-0"
+                placeholder={agentName ? `Nhắn tới ${agentName}…` : 'Soạn nội dung…'}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !sending) {
+                    e.preventDefault()
+                    void submitUpdate()
+                  }
+                }}
+              />
+            </div>
+            <div className="flex shrink-0 items-center justify-between border-t border-white/5 px-6 py-4">
+              <span className="text-sm text-slate-500">
+                {draft.length} ký tự
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setComposerFsOpen(false)}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitUpdate()}
+                  disabled={!draft.trim() || sending}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" aria-hidden strokeWidth={2} />
+                  Gửi tin nhắn
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div
         id="task-automation-panel"

@@ -9,13 +9,13 @@ from Api.schemas.refine_system_prompt_schema import (
 from fastapi import APIRouter, HTTPException
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from ollama_config import OLLAMA_BASE_URL
+from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
 
 router = APIRouter()
 
 # Một lần cho cả process (tương tự leader_agent.py)
 _refine_model = init_chat_model(
-    model="llama3.1",
+    model=OLLAMA_MODEL,
     model_provider="ollama",
     base_url=OLLAMA_BASE_URL,
     temperature=0.7,

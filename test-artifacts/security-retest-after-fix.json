@@ -1,0 +1,14 @@
+{
+  "checks": [
+    {
+      "check": "idor_agent_get_by_id_cross_user_after_fix",
+      "status": 404,
+      "blocked": true
+    },
+    {
+      "check": "append_message_oversized_payload_after_fix",
+      "status": 400,
+      "blocked": true
+    }
+  ]
+}

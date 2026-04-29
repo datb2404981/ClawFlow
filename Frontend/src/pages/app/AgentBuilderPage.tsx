@@ -470,9 +470,9 @@ export function AgentBuilderPage() {
   }, [workspaceId])
 
   useEffect(() => {
-    if (isCreate || !agentId) return
+    if (isCreate || !agentId || !workspaceId) return
     void (async () => {
-      const a: Agent = await fetchAgent(agentId)
+      const a: Agent = await fetchAgent(agentId, workspaceId)
       setName(a.name)
       setDescription(a.description ?? '')
       setSystemPrompt(a.system_prompt)
@@ -484,7 +484,7 @@ export function AgentBuilderPage() {
         ),
       )
     })()
-  }, [agentId, isCreate])
+  }, [agentId, isCreate, workspaceId])
 
   const toggleTemplate = (id: string) => {
     setSelectedTpl((s) => {

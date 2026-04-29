@@ -22,6 +22,24 @@ function resolveApiBase(): string {
 
 export const API_BASE = resolveApiBase()
 
+/** Origin HTTP của Nest (Socket.IO không dùng prefix /api/v1). */
+export function resolveWsOrigin(): string {
+  const fromEnv = import.meta.env.VITE_WS_ORIGIN?.trim()
+  if (fromEnv) return fromEnv.replace(/\/$/, '')
+  const base = API_BASE.replace(/\/$/, '')
+  if (base.startsWith('/')) {
+    if (typeof window !== 'undefined') {
+      return window.location.origin
+    }
+    return ''
+  }
+  try {
+    return new URL(base).origin
+  } catch {
+    return ''
+  }
+}
+
 if (import.meta.env.DEV && /:8000(\/|$)/.test(API_BASE)) {
   console.warn(
     '[ClawFlow] API đang trỏ cổng 8000 (thường là AI_Core). NestJS + Google OAuth chạy trên 8080. Tạo Frontend/.env với:\n' +

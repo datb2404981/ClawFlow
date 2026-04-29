@@ -1,40 +1,22 @@
 """Helpers đọc/filter message cho cả 2 trường hợp: object và dict (LangGraph Studio)."""
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
 
 from state import MEMORY_TOOL_NAMES
+from Utils.text_sanitize import sanitize_assistant_text, strip_thought
 
-_THOUGHT_FULL_RE = re.compile(r"<thought>.*?</thought>", re.DOTALL | re.IGNORECASE)
-_THOUGHT_OPEN_ONLY_RE = re.compile(r"<thought>.*", re.DOTALL | re.IGNORECASE)
-_THOUGHT_CLOSE_PREFIX_RE = re.compile(r"^\s*(?:<[^>]*)?</thought>", re.IGNORECASE)
-
-
-def strip_thought(text: str) -> str:
-    """Xoá mọi biến thể của khối <thought>.
-
-    Xử lý 3 trường hợp:
-    - <thought>...</thought>  (đầy đủ)
-    - Thiếu </thought> ở cuối → xoá từ <thought> đến hết.
-    - Thiếu <thought> đầu, chỉ có </thought> ở đâu đó → xoá mọi thứ đến hết </thought>.
-    """
-    if not text:
-        return text
-
-    cleaned = _THOUGHT_FULL_RE.sub("", text)
-
-    if "<thought>" in cleaned.lower() and "</thought>" not in cleaned.lower():
-        cleaned = _THOUGHT_OPEN_ONLY_RE.sub("", cleaned)
-
-    lower = cleaned.lower()
-    close_idx = lower.rfind("</thought>")
-    if close_idx != -1:
-        cleaned = cleaned[close_idx + len("</thought>"):]
-
-    return cleaned.strip()
+__all__ = [
+    "sanitize_assistant_text",
+    "strip_thought",
+    "msg_attr",
+    "is_memory_tool_msg",
+    "has_memory_tool_call",
+    "last_human_text",
+    "last_human_text_excluding_internal",
+]
 
 
 def msg_attr(m: Any, key: str, default=None):
@@ -64,4 +46,20 @@ def last_human_text(state: dict) -> str:
             return str(m.content or "")
         if isinstance(m, dict) and m.get("type") == "human":
             return str(m.get("content", ""))
+    return ""
+
+
+def last_human_text_excluding_internal(state: dict) -> str:
+    """Human gần nhất không phải hint nội bộ của reviewer (retry loop)."""
+    for m in reversed(state.get("messages", [])):
+        if isinstance(m, HumanMessage):
+            c = str(m.content or "")
+            if c.startswith("[ClawFlow-internal-review]"):
+                continue
+            return c
+        if isinstance(m, dict) and m.get("type") == "human":
+            c = str(m.get("content", ""))
+            if c.startswith("[ClawFlow-internal-review]"):
+                continue
+            return c
     return ""
