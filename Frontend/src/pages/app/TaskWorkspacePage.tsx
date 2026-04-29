@@ -272,8 +272,9 @@ export function TaskWorkspacePage() {
     setSending(true)
 
     // Thêm tin nhắn người dùng ngay lập tức (optimistic)
+    const optimisticId = crypto.randomUUID()
     const optimisticUser: TaskMessage = {
-      _id: `tmp-user-${Date.now()}`,
+      _id: optimisticId,
       task_id: task._id,
       workspace_id: workspaceId,
       role: 'user',
@@ -284,17 +285,13 @@ export function TaskWorkspacePage() {
 
     try {
       const aiMsg = await sendTaskMessage(task._id, workspaceId, content)
-      // Cập nhật danh sách: thay optimistic bằng msg thật và thêm AI reply
-      setMessages((prev) => [
-        ...prev.filter((m) => m._id !== optimisticUser._id),
-        { ...optimisticUser, _id: `user-${Date.now()}` },
-        aiMsg,
-      ])
+      // Giữ tin nhắn optimistic của user (đã được lưu trên server), chỉ thêm phản hồi AI
+      setMessages((prev) => [...prev, aiMsg])
       // Cập nhật trạng thái task
       setTask((prev) => prev ? { ...prev, status: 'completed', result: aiMsg.content } : prev)
     } catch {
       // Xóa tin nhắn optimistic nếu gửi thất bại
-      setMessages((prev) => prev.filter((m) => m._id !== optimisticUser._id))
+      setMessages((prev) => prev.filter((m) => m._id !== optimisticId))
     } finally {
       setSending(false)
     }
