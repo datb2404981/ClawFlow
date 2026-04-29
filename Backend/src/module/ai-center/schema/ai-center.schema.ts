@@ -102,3 +102,41 @@ export class Task {
 
 export type TaskDocument = HydratedDocument<Task>;
 export const TaskSchema = SchemaFactory.createForClass(Task);
+
+export const TASK_MESSAGE_ROLE_VALUES = ['user', 'assistant'] as const;
+export type TaskMessageRole = (typeof TASK_MESSAGE_ROLE_VALUES)[number];
+
+@Schema({ timestamps: true, collection: 'task_messages' })
+export class TaskMessage {
+  @Prop({
+    type: Types.ObjectId,
+    ref: Task.name,
+    required: true,
+    index: true,
+  })
+  task_id!: Types.ObjectId;
+
+  @Prop({
+    type: Types.ObjectId,
+    ref: Workspace.name,
+    required: true,
+    index: true,
+  })
+  workspace_id!: Types.ObjectId;
+
+  @Prop({
+    type: String,
+    enum: TASK_MESSAGE_ROLE_VALUES,
+    required: true,
+  })
+  role!: TaskMessageRole;
+
+  @Prop({ required: true })
+  content!: string;
+
+  createdAt!: Date;
+  updatedAt!: Date;
+}
+
+export type TaskMessageDocument = HydratedDocument<TaskMessage>;
+export const TaskMessageSchema = SchemaFactory.createForClass(TaskMessage);

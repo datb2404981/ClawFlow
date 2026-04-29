@@ -8,10 +8,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { toObjectId } from 'src/common/util/object-id.util';
 import { WorkspacesService } from 'src/module/accounts/service/workspaces.service';
-import { Agents, AgentsDocument, Task, TaskDocument } from '../schema/ai-center.schema';
+import { Agents, AgentsDocument, Task, TaskDocument, TaskMessage, TaskMessageDocument } from '../schema/ai-center.schema';
 import { CreateTaskDto } from '../dto/create-task.dto';
 import { ListTasksQueryDto } from '../dto/list-tasks-query.dto';
 import { UpdateTaskDto } from '../dto/update-task.dto';
+import { SendTaskMessageDto } from '../dto/send-task-message.dto';
 import { AiCoreService } from './ai-core.service';
 import { GeminiEmbeddingService } from 'src/module/accounts/service/gemini-embedding.service';
 import { KnowledgeChunk, KnowledgeChunkDocument } from 'src/module/workspace-documents-module/schema/workspace-document.schema';
@@ -27,6 +28,7 @@ export class TasksService {
   constructor(
     @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
     @InjectModel(Agents.name) private agentsModel: Model<AgentsDocument>,
+    @InjectModel(TaskMessage.name) private taskMessageModel: Model<TaskMessageDocument>,
     @InjectModel(KnowledgeChunk.name) private knowledgeChunkModel: Model<KnowledgeChunkDocument>,
     @InjectModel(SkillTemplate.name) private skillTemplateModel: Model<SkillTemplateDocument>,
     private readonly workspacesService: WorkspacesService,
@@ -63,6 +65,16 @@ export class TasksService {
       status: dto.status ?? 'scheduled',
       thread_id: dto.thread_id,
     });
+
+    // Lưu tin nhắn đầu tiên (user message = mô tả task) vào lịch sử hội thoại
+    if (dto.description) {
+      await this.taskMessageModel.create({
+        task_id: doc._id,
+        workspace_id: wid,
+        role: 'user',
+        content: dto.description,
+      });
+    }
 
     // Bắn Job vào Redis Queue để chạy ngầm an toàn
     await this.tasksQueue.add('process_task', { taskId: doc._id.toString() }, {
@@ -194,6 +206,15 @@ export class TasksService {
         { _id: taskDoc._id },
         { $set: { status: 'completed', result: result } }
       );
+
+      // Lưu phản hồi AI vào lịch sử hội thoại
+      await this.taskMessageModel.create({
+        task_id: taskDoc._id,
+        workspace_id: taskDoc.workspace_id,
+        role: 'assistant',
+        content: result,
+      });
+
       this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, 'completed', result);
       this.logger.log(`Task ${taskDoc._id} hoàn thành thành công.`);
 
@@ -287,5 +308,88 @@ export class TasksService {
       throw new NotFoundException('Không tìm thấy task');
     }
     return 'OK';
+  }
+
+  async getMessages(
+    userId: string,
+    taskId: string,
+    workspaceId: string,
+  ): Promise<object[]> {
+    await this.workspacesService.findOne(userId, workspaceId);
+    const wid = toObjectId(workspaceId);
+    const tid = toObjectId(taskId);
+    // Verify the task belongs to this workspace
+    const task = await this.taskModel.findOne({ _id: tid, workspace_id: wid }).lean();
+    if (!task) {
+      throw new NotFoundException('Không tìm thấy task');
+    }
+    const messages = await this.taskMessageModel
+      .find({ task_id: tid, workspace_id: wid })
+      .sort({ createdAt: 1 })
+      .lean()
+      .exec();
+    return messages as object[];
+  }
+
+  async sendMessage(
+    userId: string,
+    taskId: string,
+    workspaceId: string,
+    dto: SendTaskMessageDto,
+  ): Promise<object> {
+    await this.workspacesService.findOne(userId, workspaceId);
+    const wid = toObjectId(workspaceId);
+    const tid = toObjectId(taskId);
+
+    const taskDoc = await this.taskModel.findOne({ _id: tid, workspace_id: wid });
+    if (!taskDoc) {
+      throw new NotFoundException('Không tìm thấy task');
+    }
+
+    // Lưu tin nhắn người dùng
+    await this.taskMessageModel.create({
+      task_id: tid,
+      workspace_id: wid,
+      role: 'user',
+      content: dto.content,
+    });
+
+    // Cập nhật trạng thái task
+    await this.taskModel.updateOne({ _id: tid }, { $set: { status: 'in_progress' } });
+    this.tasksGateway.emitTaskStatus(workspaceId, taskId, 'in_progress');
+
+    try {
+      // Gọi AI_Core với nội dung tin nhắn mới
+      const result = await this.aiCoreService.chatWithAi(
+        dto.content,
+        taskDoc.created_by.toString(),
+        taskDoc._id.toString(),
+      );
+
+      // Lưu phản hồi AI
+      const assistantMsg = await this.taskMessageModel.create({
+        task_id: tid,
+        workspace_id: wid,
+        role: 'assistant',
+        content: result,
+      });
+
+      // Cập nhật kết quả và trạng thái task
+      await this.taskModel.updateOne(
+        { _id: tid },
+        { $set: { status: 'completed', result: result } },
+      );
+      this.tasksGateway.emitTaskStatus(workspaceId, taskId, 'completed', result);
+
+      return assistantMsg.toJSON() as object;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await this.taskModel.updateOne(
+        { _id: tid },
+        { $set: { status: 'failed' } },
+      );
+      this.tasksGateway.emitTaskStatus(workspaceId, taskId, 'failed', errorMessage);
+      throw error;
+    }
   }
 }
