@@ -17,6 +17,20 @@ export type Task = {
   description?: string
   status: TaskStatus
   thread_id?: string
+  result?: string
+  compiled_prompt?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type TaskMessageRole = 'user' | 'assistant'
+
+export type TaskMessage = {
+  _id: string
+  task_id: string
+  workspace_id: string
+  role: TaskMessageRole
+  content: string
   createdAt?: string
   updatedAt?: string
 }
@@ -69,6 +83,30 @@ export async function updateTask(
   const { data } = await api.patch<ApiEnvelope<Task>>(
     `/tasks/${taskId}`,
     patch,
+    { params: { workspace_id: workspaceId } },
+  )
+  return data.data
+}
+
+export async function fetchTaskMessages(
+  taskId: string,
+  workspaceId: string,
+): Promise<TaskMessage[]> {
+  const { data } = await api.get<ApiEnvelope<TaskMessage[]>>(
+    `/tasks/${taskId}/messages`,
+    { params: { workspace_id: workspaceId } },
+  )
+  return data.data
+}
+
+export async function sendTaskMessage(
+  taskId: string,
+  workspaceId: string,
+  content: string,
+): Promise<TaskMessage> {
+  const { data } = await api.post<ApiEnvelope<TaskMessage>>(
+    `/tasks/${taskId}/messages`,
+    { content },
     { params: { workspace_id: workspaceId } },
   )
   return data.data

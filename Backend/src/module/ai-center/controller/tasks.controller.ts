@@ -14,6 +14,7 @@ import { CreateTaskDto } from '../dto/create-task.dto';
 import { ListTasksQueryDto } from '../dto/list-tasks-query.dto';
 import { TaskScopeQueryDto } from '../dto/task-scope-query.dto';
 import { UpdateTaskDto } from '../dto/update-task.dto';
+import { SendTaskMessageDto } from '../dto/send-task-message.dto';
 import { TasksService } from '../service/tasks.service';
 
 @Controller('tasks')
@@ -67,5 +68,26 @@ export class TasksController {
     @Query() q: TaskScopeQueryDto,
   ) {
     return this.tasksService.remove(user._id, taskId, q.workspace_id);
+  }
+
+  @Get(':taskId/messages')
+  @ResponseMessage('Lịch sử tin nhắn task')
+  getMessages(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Query() q: TaskScopeQueryDto,
+  ) {
+    return this.tasksService.getMessages(user._id, taskId, q.workspace_id);
+  }
+
+  @Post(':taskId/messages')
+  @ResponseMessage('Gửi tin nhắn thành công')
+  sendMessage(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Query() q: TaskScopeQueryDto,
+    @Body() dto: SendTaskMessageDto,
+  ) {
+    return this.tasksService.sendMessage(user._id, taskId, q.workspace_id, dto);
   }
 }

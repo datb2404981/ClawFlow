@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
-import { Send, Bot, Sparkles } from 'lucide-react'
+import { Send, Sparkles } from 'lucide-react'
 import { createTask } from '../../api/tasks'
 import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
 
