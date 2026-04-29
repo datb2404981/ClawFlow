@@ -73,3 +73,23 @@ export async function updateTask(
   )
   return data.data
 }
+
+export async function deleteTask(
+  taskId: string,
+  workspaceId: string,
+): Promise<void> {
+  await api.delete(`/tasks/${taskId}`, {
+    params: { workspace_id: workspaceId },
+  })
+}
+
+export async function getTaskMessages(
+  taskId: string,
+  workspaceId: string,
+): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  const { data } = await api.get<ApiEnvelope<Array<{ role: 'user' | 'assistant'; content: string }>>>(
+    `/tasks/${taskId}/messages`,
+    { params: { workspace_id: workspaceId } },
+  )
+  return data.data
+}

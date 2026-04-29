@@ -29,7 +29,8 @@ import { WorkspaceDocumentsModuleModule } from './module/workspace-documents-mod
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         connection: {
-          url: configService.get<string>('REDIS_URI') || 'redis://localhost:6379',
+          host: configService.get<string>('REDIS_HOST') || 'localhost',
+          port: configService.get<number>('REDIS_PORT') || 6379,
         },
       }),
       inject: [ConfigService],

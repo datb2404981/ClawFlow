@@ -16,7 +16,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { fetchAgent } from '../../api/agents'
-import { fetchTask, type Task } from '../../api/tasks'
+import { fetchTask, updateTask, getTaskMessages, type Task } from '../../api/tasks'
 import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
 
 function formatTs(iso?: string): string {
@@ -231,23 +231,32 @@ export function TaskWorkspacePage() {
   const { taskId = '', workspaceId: widFromRoute } = useParams()
   const navigate = useNavigate()
   const ctx = useOutletContext<WsOutlet>()
-  /** Ưu tiên segment URL — tránh context chưa sẵn sàng trong edge case hydrate. */
   const workspaceId = widFromRoute || ctx.workspaceId
   const [task, setTask] = useState<Task | null>(null)
   const [agentName, setAgentName] = useState('')
   const [err, setErr] = useState('')
   const [draft, setDraft] = useState('')
-  /** Mặc định đóng: tránh overlay full màn (<md) che khu chat lúc vào trang. */
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+  const [sending, setSending] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const base = `/app/w/${workspaceId}`
 
   useEffect(() => {
     if (!taskId || !workspaceId) return
-    void (async () => {
+    const loadData = async () => {
       setErr('')
       try {
         const t = await fetchTask(taskId, workspaceId)
         setTask(t)
+        
+        // Fetch messages
+        try {
+          const msgs = await getTaskMessages(taskId, workspaceId)
+          setMessages(msgs)
+        } catch {
+          setMessages([])
+        }
+
         try {
           const a = await fetchAgent(t.agent_id)
           setAgentName(a.name)
@@ -258,8 +267,36 @@ export function TaskWorkspacePage() {
         setTask(null)
         setErr(e instanceof Error ? e.message : 'Không tải được task')
       }
-    })()
-  }, [taskId, workspaceId])
+    }
+
+    // Gọi lần đầu
+    loadData()
+
+    // Nếu đang chạy thì polling mỗi 3 giây
+    let interval: ReturnType<typeof setInterval>
+    if (task && (task.status === 'scheduled' || task.status === 'in_progress')) {
+       interval = setInterval(loadData, 3000)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [taskId, workspaceId, task?.status])
+
+  const submitUpdate = async () => {
+    const text = draft.trim()
+    if (!text || !task || !workspaceId) return
+    
+    setSending(true)
+    try {
+      await updateTask(task._id, workspaceId, { description: text })
+      setDraft('')
+      setMessages((prev) => [...prev, { role: 'user', content: text }])
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSending(false)
+    }
+  }
 
   const statusBadge = task ? STATUS_LINES[task.status] : null
 
@@ -373,64 +410,75 @@ export function TaskWorkspacePage() {
           </div>
         </header>
 
-        <div className="scrollbar-thin flex-1 space-y-8 overflow-y-auto p-4 sm:p-8">
-          {/* Nội dung từ GET /tasks/:id — không còn đoạn chat mẫu */}
-          {/* User Message (Câu hỏi/Mô tả task) */}
-          <div className="flex w-full justify-end">
-            <div className="flex max-w-[85%] justify-end sm:max-w-3xl">
-              <div className="flex min-w-0 flex-col items-end gap-2 pt-0.5">
-                <div className="rounded-[1.5rem] rounded-tr-[0.25rem] bg-slate-100 px-5 py-3.5 sm:px-6 sm:py-4">
-                  {task.description?.trim() ? (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
-                      {task.description}
-                    </p>
-                  ) : (
-                    <p className="text-sm italic text-slate-500">
-                      Không có nội dung.
-                    </p>
-                  )}
-                </div>
-              </div>
+        <div className="scrollbar-thin flex-1 space-y-6 overflow-y-auto p-4 sm:p-8">
+          {/* Message History */}
+          {messages.length === 0 && task.status !== 'in_progress' && task.status !== 'scheduled' ? (
+            <div className="flex items-center justify-center py-12 text-center text-slate-500">
+              <p>Không có tin nhắn nào. Bắt đầu hội thoại bằng cách gửi tin nhắn dưới đây.</p>
             </div>
-          </div>
-
-          {/* AI Response Message */}
-          <div className="mt-6 flex w-full justify-start">
-            <div className="flex max-w-[85%] gap-3 sm:max-w-3xl md:gap-4">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-100 bg-indigo-50/80 text-indigo-600 shadow-sm sm:h-10 sm:w-10">
-                <Bot className="h-[18px] w-[18px] sm:h-[20px] sm:w-[20px]" strokeWidth={2} aria-hidden />
-              </div>
-              <div className="flex min-w-0 flex-col gap-1.5 pt-1 sm:pt-1.5">
-                <div className="text-[13px] font-semibold text-slate-700 sm:text-sm">
-                  {agentName.trim() || 'Trợ lý AI'}
-                </div>
-                <div className="rounded-[1.5rem] rounded-tl-[0.25rem] border border-slate-100 bg-white px-5 py-3.5 shadow-sm sm:px-6 sm:py-4">
-                  {task.status === 'scheduled' || task.status === 'in_progress' ? (
-                    <div className="flex items-center gap-1.5 px-1 py-1">
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.2s]" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.4s]" />
+          ) : (
+            messages.map((msg, idx) => (
+              msg.role === 'user' ? (
+                // User Message
+                <div key={idx} className="flex w-full justify-end">
+                  <div className="flex max-w-[85%] justify-end sm:max-w-3xl">
+                    <div className="flex min-w-0 flex-col items-end gap-2 pt-0.5">
+                      <div className="rounded-[1.5rem] rounded-tr-[0.25rem] bg-slate-100 px-5 py-3.5 sm:px-6 sm:py-4">
+                        <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
+                          {msg.content}
+                        </p>
+                      </div>
                     </div>
-                  ) : task.status === 'failed' ? (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-red-600">
-                      Xin lỗi, đã xảy ra lỗi trong quá trình xử lý. Bạn vui lòng thử lại nhé.
-                    </p>
-                  ) : task.status === 'waiting_approval' ? (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-amber-700">
-                      Công việc đang chờ được phê duyệt để tiếp tục...
-                    </p>
-                  ) : (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
-                      ✅ Công việc đã được tiếp nhận và xử lý.
-                      {/* Có thể tích hợp kết quả API của task vào đây sau */}
-                    </p>
-                  )}
+                  </div>
+                </div>
+              ) : (
+                // Assistant Message
+                <div key={idx} className="mt-6 flex w-full justify-start">
+                  <div className="flex max-w-[85%] gap-3 sm:max-w-3xl md:gap-4">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-100 bg-indigo-50/80 text-indigo-600 shadow-sm sm:h-10 sm:w-10">
+                      <Bot className="h-[18px] w-[18px] sm:h-[20px] sm:w-[20px]" strokeWidth={2} aria-hidden />
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-1.5 pt-1 sm:pt-1.5">
+                      <div className="text-[13px] font-semibold text-slate-700 sm:text-sm">
+                        {agentName.trim() || 'Trợ lý AI'}
+                      </div>
+                      <div className="rounded-[1.5rem] rounded-tl-[0.25rem] border border-slate-100 bg-white px-5 py-3.5 shadow-sm sm:px-6 sm:py-4">
+                        <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
+                          {msg.content}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            ))
+          )}
+
+          {/* Loading indicator */}
+          {(task.status === 'scheduled' || task.status === 'in_progress') && (
+            <div className="mt-6 flex w-full justify-start">
+              <div className="flex max-w-[85%] gap-3 sm:max-w-3xl md:gap-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-100 bg-indigo-50/80 text-indigo-600 shadow-sm sm:h-10 sm:w-10">
+                  <Bot className="h-[18px] w-[18px] sm:h-[20px] sm:w-[20px]" strokeWidth={2} aria-hidden />
+                </div>
+                <div className="flex min-w-0 flex-col gap-1.5 pt-1 sm:pt-1.5">
+                  <div className="text-[13px] font-semibold text-slate-700 sm:text-sm">
+                    {agentName.trim() || 'Trợ lý AI'}
+                  </div>
+                  <div className="rounded-[1.5rem] rounded-tl-[0.25rem] border border-slate-100 bg-white px-5 py-3.5 shadow-sm sm:px-6 sm:py-4">
+                    <div className="flex items-center gap-2 px-1 py-1">
+                      <div className="flex gap-1.5">
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--color-cf-primary,#003ec7)]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--color-cf-primary,#003ec7)] [animation-delay:0.2s]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--color-cf-primary,#003ec7)] [animation-delay:0.4s]" />
+                      </div>
+                      <span className="ml-2 text-sm italic text-slate-500">Đang xử lý, xin vui lòng đợi...</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-
-
+          )}
 
           <div className="h-6 shrink-0" aria-hidden />
         </div>
@@ -447,27 +495,31 @@ export function TaskWorkspacePage() {
               <Paperclip className="h-5 w-5" aria-hidden strokeWidth={2} />
             </button>
             <input
-              className="min-w-0 flex-1 border-none bg-transparent py-3 pl-4 pr-3 text-base text-[var(--color-cf-on-surface,#191c1d)] outline-none ring-0 placeholder:text-[color-mix(in_srgb,var(--color-cf-on-surface-variant)_55%,transparent)]"
+              className="min-w-0 flex-1 border-none bg-transparent py-3 pl-4 pr-3 text-base text-[var(--color-cf-on-surface,#191c1d)] outline-none ring-0 placeholder:text-[color-mix(in_srgb,var(--color-cf-on-surface-variant)_55%,transparent)] disabled:opacity-60"
               placeholder={
-                agentName
-                  ? `Nhắn tới ${agentName}…`
-                  : 'Nhắn tới agent…'
+                task.status === 'in_progress' || task.status === 'scheduled'
+                  ? `Đang xử lý... (Sắp có thể tiếp tục)`
+                  : agentName
+                    ? `Nhắn tới ${agentName}…`
+                    : 'Nhắn tới agent…'
               }
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              disabled={task.status === 'in_progress' || task.status === 'scheduled'}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey && !sending) {
                   e.preventDefault()
-                  setDraft('')
+                  submitUpdate()
                 }
               }}
             />
             <button
               type="button"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-cf-primary,#003ec7)] text-white shadow-md transition-colors hover:bg-[var(--color-cf-primary-container,#0052ff)] sm:mr-0.5"
-              disabled
-              aria-label="Gửi (sớm có)"
-              title="Gửi — nối AI_Core đang làm"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-cf-primary,#003ec7)] text-white shadow-md transition-colors hover:bg-[var(--color-cf-primary-container,#0052ff)] disabled:bg-slate-300 sm:mr-0.5"
+              disabled={(task.status === 'in_progress' || task.status === 'scheduled') || !draft.trim() || sending}
+              onClick={submitUpdate}
+              aria-label="Gửi tin nhắn"
+              title={task.status === 'in_progress' || task.status === 'scheduled' ? 'Đang xử lý...' : 'Gửi tin nhắn'}
             >
               <Send className="h-5 w-5 shrink-0" aria-hidden strokeWidth={2} />
             </button>

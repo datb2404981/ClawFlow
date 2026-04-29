@@ -15,7 +15,7 @@ router = APIRouter()
 
 # Một lần cho cả process (tương tự leader_agent.py)
 _refine_model = init_chat_model(
-    model="llama3.1",
+    model="qwen:3.5",
     model_provider="ollama",
     base_url=OLLAMA_BASE_URL,
     temperature=0.7,

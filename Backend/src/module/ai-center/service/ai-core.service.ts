@@ -53,6 +53,63 @@ export class AiCoreService {
     }
   }
 
+  async streamChat(
+    message: string, 
+    userId: string, 
+    sessionId: string, 
+    onStatus: (status: string) => void
+  ): Promise<string> {
+    const url = `${this.baseUrl}/api/v1/stream_chat`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, session_id: sessionId, message }),
+      });
+
+      if (!response.ok) throw new Error(`AI_Core HTTP ${response.status}`);
+      if (!response.body) throw new Error('No stream body');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let done = false;
+      let finalResult = '';
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.replace('data: ', '').trim();
+              if (!dataStr) continue;
+              try {
+                const data = JSON.parse(dataStr);
+                if (data.type === 'status') {
+                  onStatus(data.content);
+                } else if (data.type === 'done') {
+                  finalResult = data.content;
+                } else if (data.type === 'error') {
+                  throw new Error(data.content);
+                }
+              } catch (e) {
+                // Ignore parse errors for incomplete chunks
+              }
+            }
+          }
+        }
+      }
+      return finalResult;
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Lỗi giao tiếp stream với AI_Core: ${errMsg}`);
+      throw new Error(errMsg);
+    }
+  }
+
   /**
    * Gọi API /api/v1/route_skills của AI_Core để chọn các kỹ năng cần thiết cho task.
    */

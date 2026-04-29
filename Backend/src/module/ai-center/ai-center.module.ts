@@ -3,7 +3,7 @@ import { UsersModule } from 'src/module/accounts/account.module';
 import { AgentsService } from './service/agents.service';
 import { AgentsController } from './controller/agent.controller';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Agents, AgentsSchema, Task, TaskSchema } from './schema/ai-center.schema';
+import { Agents, AgentsSchema, Task, TaskSchema, TaskMessage, TaskMessageSchema } from './schema/ai-center.schema';
 import {
   SkillTemplate,
   SkillTemplateSchema,
@@ -29,6 +29,7 @@ import { TasksProcessor } from './processor/tasks.processor';
     MongooseModule.forFeature([
       { name: Agents.name, schema: AgentsSchema },
       { name: Task.name, schema: TaskSchema },
+      { name: TaskMessage.name, schema: TaskMessageSchema },
       { name: SkillTemplate.name, schema: SkillTemplateSchema },
       { name: KnowledgeChunk.name, schema: KnowledgeChunkSchema },
     ]),

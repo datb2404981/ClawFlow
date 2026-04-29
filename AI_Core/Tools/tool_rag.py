@@ -1,7 +1,6 @@
 from langchain_core.tools import tool
 import os
 import requests
-from state import client
 from bson.objectid import ObjectId
 
 @tool
@@ -15,51 +14,54 @@ def vector_search_workspace(query: str, workspace_id: str) -> str:
     - workspace_id: ID của workspace hiện tại (lấy từ ngữ cảnh hoặc bộ nhớ). Nếu không có, không thể dùng tool này.
     """
     try:
-        # Trong môi trường thực tế, nếu MongoDB lưu collection là 'knowledgechunks'
-        # Ta lấy DB name từ URI
-        uri = os.getenv("MONGO_URI", "")
-        db_name = uri.split("/")[-1].split("?")[0]
-        if not db_name:
-            db_name = "test" # default
-
-        db = client.get_database(db_name)
-        collection = db.get_collection("knowledgechunks")
-
-        # Fallback: Hiện tại AI_Core Python chưa gắn thư viện Gemini Embeddings
-        # Để an toàn, chúng ta gọi tìm kiếm Text cơ bản trên MongoDB thay cho Vector,
-        # hoặc sử dụng Regex search do Python chưa có Gemini API Key.
-        # Lưu ý: Yêu cầu collection phải tạo Text Index trên chunk_text.
+        from state import client # Fix Circular Import
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
         
-        # Thử tìm kiếm bằng Text Search (yêu cầu index) hoặc Regex Search (chậm nhưng an toàn)
-        cursor = collection.find(
+        # 1. Tạo Vector Embedding từ câu query bằng Gemini
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_api_key:
+            return "Lỗi cấu hình: AI_Core thiếu GEMINI_API_KEY để chạy Vector Search."
+            
+        embeddings_model = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004", 
+            google_api_key=gemini_api_key
+        )
+        query_vector = embeddings_model.embed_query(query)
+
+        # 2. Kết nối tới DB clawflaw_core_api
+        db = client.get_database("clawflaw_core_api")
+        collection = db.get_collection("knowledge_chunks")
+
+        # 3. Chạy lệnh truy vấn Vector Search
+        pipeline = [
             {
-                "workspace_id": ObjectId(workspace_id),
-                "chunk_text": {"$regex": query, "$options": "i"}
+                "$vectorSearch": {
+                    "index": "vector_index", # Tên index bắt buộc phải khớp trên Atlas
+                    "path": "embedding",
+                    "queryVector": query_vector,
+                    "numCandidates": 50,
+                    "limit": 3,
+                    "filter": { "workspace_id": ObjectId(workspace_id) }
+                }
+            },
+            {
+                "$project": {
+                    "chunk_text": 1,
+                    "score": { "$meta": "vectorSearchScore" }
+                }
             }
-        ).limit(3)
+        ]
         
-        results = list(cursor)
-        
-        if not results:
-            # Nếu tìm regex thất bại, chia cắt query thành từ khóa
-            keywords = query.split()
-            if len(keywords) > 2:
-                # Tìm bằng các từ khóa ngắn hơn
-                cursor2 = collection.find(
-                    {
-                        "workspace_id": ObjectId(workspace_id),
-                        "chunk_text": {"$regex": keywords[0], "$options": "i"}
-                    }
-                ).limit(3)
-                results = list(cursor2)
+        results = list(collection.aggregate(pipeline))
 
         if not results:
             return "Không tìm thấy tài liệu liên quan nào trong kho tri thức."
 
-        response_text = "### KẾT QUẢ TÌM KIẾM TÀI LIỆU NỘI BỘ:\n"
+        response_text = "### KẾT QUẢ TÌM KIẾM TÀI LIỆU NỘI BỘ (VECTOR SEARCH):\n"
         for idx, doc in enumerate(results):
             text = doc.get("chunk_text", "")
-            response_text += f"\n--- Tài liệu {idx+1} ---\n{text}\n"
+            score = doc.get("score", 0)
+            response_text += f"\n--- Tài liệu {idx+1} (Độ khớp: {score:.2f}) ---\n{text}\n"
 
         return response_text
     except Exception as e:

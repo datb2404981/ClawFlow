@@ -102,3 +102,31 @@ export class Task {
 
 export type TaskDocument = HydratedDocument<Task>;
 export const TaskSchema = SchemaFactory.createForClass(Task);
+
+@Schema({ timestamps: true, collection: 'task_messages' })
+export class TaskMessage {
+  @Prop({
+    type: Types.ObjectId,
+    ref: Task.name,
+    required: true,
+    index: true,
+  })
+  task_id!: Types.ObjectId;
+
+  @Prop({
+    type: String,
+    enum: ['user', 'assistant'],
+    required: true,
+    index: true,
+  })
+  role!: 'user' | 'assistant';
+
+  @Prop({ required: true })
+  content!: string;
+
+  createdAt!: Date;
+  updatedAt!: Date;
+}
+
+export type TaskMessageDocument = HydratedDocument<TaskMessage>;
+export const TaskMessageSchema = SchemaFactory.createForClass(TaskMessage);

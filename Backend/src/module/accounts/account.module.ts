@@ -75,6 +75,7 @@ import { WorkspaceKnowledgeIngestService } from './service/workspace-knowledge-i
     UsersService,
     AuthService,
     WorkspacesService,
+    GeminiEmbeddingService,
     PassportModule,
     JwtModule,
   ],

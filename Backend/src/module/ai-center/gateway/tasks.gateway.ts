@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -17,7 +18,7 @@ import { Logger } from '@nestjs/common';
 })
 export class TasksGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private logger: Logger = new Logger('TasksGateway');
 

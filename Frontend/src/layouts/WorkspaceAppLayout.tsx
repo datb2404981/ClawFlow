@@ -40,7 +40,7 @@ import {
   type Workspace,
 } from '../api/workspaces'
 import { deleteAgent, fetchAgents, type Agent } from '../api/agents'
-import { fetchTasks, type Task, type TaskStatus } from '../api/tasks'
+import { fetchTasks, deleteTask, type Task, type TaskStatus } from '../api/tasks'
 import { BRAND_TAGLINE, SIDEBAR } from '../navigation/sidebarNav'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 
@@ -274,6 +274,11 @@ export function WorkspaceAppLayout() {
     name: string
   } | null>(null)
   const [agentDeleteLoading, setAgentDeleteLoading] = useState(false)
+  const [taskDeleteTarget, setTaskDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [taskDeleteLoading, setTaskDeleteLoading] = useState(false)
   /** Mở từ icon rail (hoặc tương đương): nhấn mạnh đúng block search / agents / tasks khi chưa có agentId–taskId trên URL. */
   const [sidebarSectionFocus, setSidebarSectionFocus] = useState<
     null | 'search' | 'agents' | 'tasks'
@@ -577,6 +582,27 @@ export function WorkspaceAppLayout() {
       })
     } finally {
       setWsDeleteLoading(false)
+    }
+  }
+
+  const runDeleteTask = async () => {
+    if (!taskDeleteTarget || !workspaceId) return
+    const { id } = taskDeleteTarget
+    setTaskDeleteLoading(true)
+    try {
+      await deleteTask(id, workspaceId)
+      setTaskDeleteTarget(null)
+      refresh()
+      if (taskId === id) {
+        navigate(`${base}/dashboard`, { replace: true })
+      }
+    } catch (err) {
+      setWsMenuNotice({
+        tone: 'error',
+        text: getApiErrorMessage(err, 'Không xoá được task.'),
+      })
+    } finally {
+      setTaskDeleteLoading(false)
     }
   }
 
@@ -1260,13 +1286,14 @@ export function WorkspaceAppLayout() {
               {filteredTasks.map((t) => {
                 const tActive = taskId === t._id
                 return (
-                  <li key={t._id}>
+                  <li key={t._id} className="group/trow relative flex items-center">
                     <Link
                       to={`${base}/tasks/${t._id}`}
                       className={[
                         taskRowItem,
                         TASK_ROW_STATUS_BORDER[t.status],
                         tActive ? taskRowActive : taskRowIdle,
+                        'flex-1 pr-8' // add padding right to avoid overlapping with trash icon
                       ].join(' ')}
                       title={`${t.title} · ${STATUS_BADGE[t.status].label}`}
                     >
@@ -1280,6 +1307,18 @@ export function WorkspaceAppLayout() {
                       <span className="min-w-0 flex-1 truncate">{t.title}</span>
                       <TaskStatusBadge status={t.status} />
                     </Link>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setTaskDeleteTarget({ id: t._id, name: t.title })
+                      }}
+                      className="absolute right-1.5 flex h-6 w-6 items-center justify-center rounded text-slate-400 opacity-0 transition-all hover:bg-rose-100 hover:text-rose-600 group-hover/trow:opacity-100"
+                      title="Xoá task"
+                      aria-label="Xoá task"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </li>
                 )
               })}
@@ -1558,6 +1597,17 @@ export function WorkspaceAppLayout() {
         }}
         onConfirm={() => void runDeleteWorkspace()}
         busy={wsDeleteLoading}
+        danger
+      />
+      <ConfirmDialog
+        open={Boolean(taskDeleteTarget)}
+        title="Xoá công việc?"
+        description={`Bạn có chắc chắn muốn xoá vĩnh viễn công việc "${taskDeleteTarget?.name}" không? Thao tác này không thể hoàn tác.`}
+        confirmLabel="Xoá công việc"
+        cancelLabel="Hủy"
+        onConfirm={runDeleteTask}
+        onCancel={() => setTaskDeleteTarget(null)}
+        isLoading={taskDeleteLoading}
         danger
       />
       {createWsOpen && (

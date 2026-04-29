@@ -95,6 +95,10 @@ function formatDate(iso: string): string {
   }
 }
 
+function normalizeKbFileName(name: string): string {
+  return name.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '')
+}
+
 type IngestLine =
   | { kind: 'none' }
   | { kind: 'pending' }
@@ -577,73 +581,79 @@ export function WorkspaceManagePage() {
                       </p>
                     ) : (
                       <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-                        {kbFiles.map((f) => (
-                          <li
-                            key={f._id}
-                            className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-100/90 bg-slate-50/50 px-2.5 py-2"
-                          >
-                            <span className="shrink-0" aria-hidden>
-                              {fileIcon(f.mime_type, f.original_name)}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-[13px] font-medium text-slate-800">
-                                {f.original_name}
-                              </p>
-                              <p className="text-[11px] text-slate-500">
-                                {formatBytes(f.size_bytes)} ·{' '}
-                                {formatDate(f.createdAt)}
-                              </p>
-                              {(() => {
-                                const line = kbIngestLine(f)
-                                if (line.kind === 'none') return null
-                                if (line.kind === 'pending') {
-                                  return (
-                                    <p className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-amber-800">
-                                      <Loader2
-                                        className="h-3 w-3 shrink-0 animate-spin"
-                                        strokeWidth={2}
-                                        aria-hidden
-                                      />
-                                      Đang phân tích dữ liệu cho AI…
-                                    </p>
-                                  )
-                                }
-                                if (line.kind === 'ok') {
-                                  return (
-                                    <p className="mt-0.5 text-[11px] font-medium text-emerald-800">
-                                      Đã lập chỉ mục
-                                    </p>
-                                  )
-                                }
-                                return (
-                                  <p
-                                    className="mt-0.5 text-[11px] font-medium text-rose-800"
-                                    title={line.detail}
-                                  >
-                                    Lỗi lập chỉ mục:{' '}
-                                    <span className="font-normal text-rose-700/95">
-                                      {line.detail}
-                                    </span>
-                                  </p>
-                                )
-                              })()}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setKbDeleteTarget({
-                                  id: f._id,
-                                  name: f.original_name,
-                                })
-                              }
-                              disabled={kbBusy || kbDeleteBusy || kbDeleteTarget != null}
-                              className="text-slate-400 hover:text-rose-600 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-rose-50/80"
-                              title="Xoá"
+                        {kbFiles.map((f) => {
+                          const fileName = normalizeKbFileName(f.original_name)
+                          return (
+                            <li
+                              key={f._id}
+                              className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-100/90 bg-slate-50/50 px-2.5 py-2"
                             >
-                              <Trash2 className="h-4 w-4" strokeWidth={1.5} />
-                            </button>
-                          </li>
-                        ))}
+                              <span className="shrink-0" aria-hidden>
+                                {fileIcon(f.mime_type, fileName)}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p
+                                  className="truncate text-[13px] font-medium text-slate-800"
+                                  title={fileName}
+                                >
+                                  {fileName}
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                  {formatBytes(f.size_bytes)} ·{' '}
+                                  {formatDate(f.createdAt)}
+                                </p>
+                                {(() => {
+                                  const line = kbIngestLine(f)
+                                  if (line.kind === 'none') return null
+                                  if (line.kind === 'pending') {
+                                    return (
+                                      <p className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-amber-800">
+                                        <Loader2
+                                          className="h-3 w-3 shrink-0 animate-spin"
+                                          strokeWidth={2}
+                                          aria-hidden
+                                        />
+                                        Đang phân tích dữ liệu cho AI…
+                                      </p>
+                                    )
+                                  }
+                                  if (line.kind === 'ok') {
+                                    return (
+                                      <p className="mt-0.5 text-[11px] font-medium text-emerald-800">
+                                        Đã lập chỉ mục
+                                      </p>
+                                    )
+                                  }
+                                  return (
+                                    <p
+                                      className="mt-0.5 text-[11px] font-medium text-rose-800"
+                                      title={line.detail}
+                                    >
+                                      Lỗi lập chỉ mục:{' '}
+                                      <span className="font-normal text-rose-700/95">
+                                        {line.detail}
+                                      </span>
+                                    </p>
+                                  )
+                                })()}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setKbDeleteTarget({
+                                    id: f._id,
+                                    name: fileName,
+                                  })
+                                }
+                                disabled={kbBusy || kbDeleteBusy || kbDeleteTarget != null}
+                                className="text-slate-400 hover:text-rose-600 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-rose-50/80"
+                                title="Xoá"
+                              >
+                                <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                              </button>
+                            </li>
+                          )
+                        })}
                       </ul>
                     )}
                   </div>

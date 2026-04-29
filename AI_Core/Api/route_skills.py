@@ -10,7 +10,7 @@ router = APIRouter()
 @router.post("/route_skills", response_model=RouteSkillsResponse)
 async def route_skills(req: RouteSkillsRequest):
     try:
-        model_name = os.environ.get("OLLAMA_MODEL", "llama3.2:1b-instruct-fp16")
+        model_name = os.environ.get("OLLAMA_MODEL", "qwen:3.5")
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         
         # Tránh lỗi nếu danh sách skill rỗng

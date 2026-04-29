@@ -59,6 +59,16 @@ export class TasksController {
     return this.tasksService.update(user._id, taskId, q.workspace_id, dto);
   }
 
+  @Get(':taskId/messages')
+  @ResponseMessage('Danh sách tin nhắn của task')
+  getMessages(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Query() q: TaskScopeQueryDto,
+  ) {
+    return this.tasksService.getTaskMessages(user._id, taskId, q.workspace_id);
+  }
+
   @Delete(':taskId')
   @ResponseMessage('Xóa task thành công')
   remove(
