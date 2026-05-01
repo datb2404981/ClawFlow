@@ -91,7 +91,7 @@ services:
       # Gọi Ollama cài trên macOS/Windows (ngoài container)
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       # LangSmith: subprocess `reload` đôi khi làm mất/ lệch trace — tắt reload trong Docker (bật lại = xóa dòng này).
-      UVICORN_RELOAD: "false"
+      UVICORN_RELOAD: "true"
     volumes:
       - ./AI_Core:/app
     networks:
