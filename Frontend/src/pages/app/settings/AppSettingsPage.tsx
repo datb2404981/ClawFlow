@@ -20,10 +20,10 @@ import {
   type Agent,
 } from '../../../api/agents'
 import {
-  connectIntegrationMock,
   disconnectIntegration,
   fetchAppSettings,
   fetchIntegrationsStatus,
+  fetchIntegrationConnectUrl,
   updateAppSettings,
   type IntegrationProvider,
   type IntegrationSettings,
@@ -278,10 +278,19 @@ export function AppSettingsPage() {
     setIntegrationsErr('')
     setLinkingProvider(provider)
     try {
+      if (!workspaceId.trim()) {
+        setIntegrationsErr('Thiếu workspace — không tạo được link liên kết.')
+        return
+      }
       if (connected) {
         await disconnectIntegration(provider)
       } else {
-        await connectIntegrationMock(provider)
+        const { connect_url } = await fetchIntegrationConnectUrl(
+          provider,
+          workspaceId,
+        )
+        window.location.href = connect_url
+        return // Bắt đầu redirect nên không cần refresh ngay
       }
       await refreshIntegrationsStatus()
     } catch {
@@ -310,6 +319,10 @@ export function AppSettingsPage() {
     setIntegrationsErr('')
     setLinkingProvider('gmail')
     try {
+      if (!workspaceId.trim()) {
+        setIntegrationsErr('Thiếu workspace — không tạo được link liên kết.')
+        return
+      }
       if (googleConnected) {
         await Promise.all([
           disconnectIntegration('gmail'),
@@ -317,11 +330,12 @@ export function AppSettingsPage() {
           disconnectIntegration('google_drive'),
         ])
       } else {
-        await Promise.all([
-          connectIntegrationMock('gmail'),
-          connectIntegrationMock('google_calendar'),
-          connectIntegrationMock('google_drive'),
-        ])
+        const { connect_url } = await fetchIntegrationConnectUrl(
+          'gmail',
+          workspaceId,
+        )
+        window.location.href = connect_url
+        return
       }
       await refreshIntegrationsStatus()
     } catch {
@@ -435,6 +449,8 @@ export function AppSettingsPage() {
                   {lang === 'en' ? '🇬🇧' : '🇻🇳'}
                 </span>
                 <select
+                  id="language-select"
+                  name="language"
                   value={lang}
                   onChange={(e) => persistLang((e.target.value === 'en' ? 'en' : 'vi') as 'vi' | 'en')}
                   className="w-full bg-transparent text-sm outline-none"

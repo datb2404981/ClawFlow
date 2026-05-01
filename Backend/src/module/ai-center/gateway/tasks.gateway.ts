@@ -40,12 +40,16 @@ export class TasksGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Phát tín hiệu chữ/chunk stream từ AI về Frontend
+   * Phát sự kiện stream từ AI (chunk, status, tool call...) về Frontend
    */
-  emitTaskStream(workspaceId: string, taskId: string, chunk: string) {
+  emitTaskStream(
+    workspaceId: string,
+    taskId: string,
+    event: Record<string, any>,
+  ) {
     this.server.to(workspaceId).emit('task.stream', {
       taskId,
-      chunk,
+      ...event,
     });
   }
 

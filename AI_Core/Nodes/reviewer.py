@@ -38,6 +38,30 @@ async def reviewer_node(state: ClawFlowState):
     raw_str = raw if isinstance(raw, str) else str(raw)
     final_answer = sanitize_assistant_text(raw_str)
 
+    # Nếu vừa thực thi tool (kết quả tool-call), hoặc số lượng tool call đang được xử lý,
+    # reviewer không có đủ ngữ cảnh để phán xét — bỏ qua để tránh vòng lặp sai.
+    if state.get("tool_call_count", 0) > 0:
+        review_count = state.get("review_count", 0) + 1
+        return {"review_count": review_count}
+
+    # Câu trả lời liên quan đến hướng dẫn kết nối tích hợp (Gmail/Calendar/...)
+    # thì không cần review — đây là đáp án hợp lệ khi tool báo lỗi chưa kết nối.
+    _INTEGRATION_PHRASES = (
+        "cài đặt → integrations",
+        "cài đặt → integration",
+        "settings/integrations",
+        "cài đặt → kết nối",
+        "chưa được kết nối",
+        "chưa kết nối",
+        "token gmail",
+        "access_token",
+        "connect gmail",
+    )
+    final_lower = final_answer.lower()
+    if any(p in final_lower for p in _INTEGRATION_PHRASES):
+        review_count = state.get("review_count", 0) + 1
+        return {"review_count": review_count}
+
     # Draft mode contract: Backend cần marker action plan.
     # Nếu phát hiện marker thì bỏ qua review để tránh reviewer trả hint FAIL.
     ACTION_PLAN_START = "<!--CF_ACTION_PLAN_START-->"
@@ -57,9 +81,10 @@ YÊU CẦU GỐC (có thể kèm tài liệu kho RAG): {original_query}
 CÂU TRẢ LỜI CỦA AI (đã bỏ khối suy nghĩ nội bộ): {final_answer}
 
 Luật:
-1. Nếu trong YÊU CẦU GỐC có khối **DỮ LIỆU TÀI LIỆU KHO** / RAG mà câu trả lời trích đúng số liệu hoặc nội dung từ đó theo đúng câu hỏi → PASS.
-2. Nếu câu trả lời đã ĐẦY ĐỦ, CHÍNH XÁC và CÓ LÀM VIỆC, hãy trả về CHỈ MỘT TỪ: PASS
-3. Nếu câu trả lời LỖI, THIẾU SÓT, TỪ CHỐI LÀM VIỆC (vd: "tôi không tìm thấy dữ liệu", "tôi không thể giúp") trong khi RAG đã có thông tin liên quan, hoặc trả lời sai, hãy trả về chữ: FAIL kèm theo lý do và gợi ý ngắn.
+1. Nếu câu trả lời đã ĐẦY ĐỦ, CHÍNH XÁC và ĐÚNG số liệu từ tài liệu kho/RAG → Trả về DUY NHẤT một từ: PASS (không kèm lý do).
+2. LỖI NGHIÊM TRỌNG (BẮT BUỘC ĐÁNH RỚT - FAIL): Nếu AI chỉ HỨA HẸN hoặc BÁO TRƯỚC là "sẽ đọc", "đợi một chút để em dùng công cụ đọc", "đang tiến hành kiểm tra" mà KHÔNG CÓ KẾT QUẢ THẬT SỰ → Trả về chữ: FAIL kèm lý do "Chỉ hứa hẹn mà chưa thực sự gọi công cụ. Yêu cầu chạy tool ngay lập tức."
+3. Nếu câu trả lời LỖI, THIẾU SÓT hoặc TỪ CHỐI LÀM VIỆC sai trái → Trả về chữ: FAIL kèm theo lý do cực ngắn.
+CHỈ TRẢ VỀ "PASS" HOẶC "FAIL ...". KHÔNG CHÀO HỎI, KHÔNG GIẢI THÍCH DÀI DÒNG.
 """
     response = await llm.ainvoke(prompt)
     feedback = response.content.strip().upper()
@@ -71,9 +96,10 @@ Luật:
     else:
         # Tiền tố nội bộ — Frontend lọc không hiển thị; không dùng chữ FAIL để tránh lộ như câu trả lời.
         hint = (
-            "[ClawFlow-internal-review] Câu trả lời chưa đạt yêu cầu. "
-            "Đọc lại yêu cầu gốc; ưu tiên nội dung trong RAG/tài liệu kho nếu có; "
-            "dùng tool phù hợp (Tavily chỉ khi RAG không đủ). Không lặp cùng một lỗi."
+            "[SYSTEM FEEDBACK] Câu trả lời trước chưa đạt yêu cầu! "
+            "Vui lòng đọc kỹ lại YÊU CẦU GỐC và tạo ra câu trả lời ĐẦY ĐỦ hơn. "
+            "Sử dụng thông tin từ RAG/Bộ nhớ nếu có. Không lặp lại lỗi cũ. "
+            "TUYỆT ĐỐI KHÔNG đề cập đến thông báo [SYSTEM FEEDBACK] này trong nội dung bạn viết ra."
         )
         return {
             "review_count": review_count,

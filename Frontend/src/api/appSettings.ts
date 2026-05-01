@@ -72,10 +72,13 @@ export async function fetchIntegrationsStatus(): Promise<{
 
 export async function fetchIntegrationConnectUrl(
   provider: IntegrationProvider,
+  workspaceId: string,
 ): Promise<{ provider: IntegrationProvider; connect_url: string; note: string }> {
   const { data } = await api.get<
     ApiEnvelope<{ provider: IntegrationProvider; connect_url: string; note: string }>
-  >(`/settings/integrations/${provider}/connect-url`)
+  >(`/settings/integrations/${provider}/connect-url`, {
+    params: { workspace_id: workspaceId },
+  })
   return data.data
 }
 

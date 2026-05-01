@@ -1,5 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ResponseMessage, User } from 'src/common/decorator/decorators';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { ResponseMessage, User, SkipPermission } from 'src/common/decorator/decorators';
 import type { IUser } from '../users.interface';
 import { UsersService } from '../service/users.service';
 import { UpdateAppSettingsDto } from '../dto/update-app-settings.dto';
@@ -40,24 +50,63 @@ export class AppSettingsController {
   getIntegrationConnectUrl(
     @User() user: IUser,
     @Param('provider') provider: string,
+    @Query('workspace_id') workspaceId?: string,
   ) {
-    return this.usersService.getIntegrationConnectUrl(user, provider);
+    return this.usersService.getIntegrationConnectUrl(
+      user,
+      provider,
+      workspaceId,
+    );
   }
 
   @Get('integrations/:provider/callback')
-  @ResponseMessage('Xử lý callback integration thành công')
-  connectIntegrationCallback(
+  @SkipPermission()
+  async connectIntegrationCallback(
     @User() user: IUser,
     @Param('provider') provider: string,
-    @Query('scopes') scopes?: string,
-    @Query('email') email?: string,
-    @Query('error') error?: string,
+    @Res() res: Response,
+    @Query() q: Record<string, any>,
   ) {
-    return this.usersService.connectIntegrationCallback(user, provider, {
-      scopes,
-      email,
-      error,
-    });
+    let { scopes, email, error, code, scope } = q;
+
+    if (code) {
+      scopes = scopes || scope || 'https://www.googleapis.com/auth/gmail.send'; 
+    }
+
+    let targetUser = user;
+    let redirectWorkspaceId: string | undefined;
+    const { state } = q;
+    if (typeof state === 'string' && state.includes('.')) {
+      const parts = state.split('.');
+      if (parts.length >= 3) {
+        const userId = parts[parts.length - 2];
+        redirectWorkspaceId = parts[parts.length - 1]!;
+        if (!targetUser) {
+          targetUser = { _id: userId } as IUser;
+        }
+      } else if (!targetUser) {
+        const userId = parts[parts.length - 1];
+        targetUser = { _id: userId } as IUser;
+      }
+    }
+
+    if (targetUser) {
+      await this.usersService.connectIntegrationCallback(targetUser, provider, {
+        scopes,
+        scope: typeof q.scope === 'string' ? q.scope : undefined,
+        email,
+        error,
+        code,
+      });
+    }
+
+    const frontendBase = (
+      process.env.FRONTEND_URL || 'http://localhost:5173'
+    ).replace(/\/$/, '');
+    const path = redirectWorkspaceId
+      ? `/app/w/${encodeURIComponent(redirectWorkspaceId)}/settings/app`
+      : '/app';
+    return res.redirect(`${frontendBase}${path}`);
   }
 
   @Post('integrations/:provider/disconnect')

@@ -16,12 +16,9 @@ export class ThirdPartyExecutorService {
   async executeActionPlanMvp(
     actionPlan: any,
     idempotencyKey: string,
-    integrationsEnabled: {
-      gmail_send: boolean
-      calendar_create: boolean
-      drive_upload: boolean
-      notion_update: boolean
-      reasons?: Record<string, string>
+    integrationsGate: {
+      providerStatusString: string;
+      connections: Record<string, any>;
     },
   ): Promise<{ executeResultText: string; executionLog: string }> {
     const actions: any[] = Array.isArray(actionPlan?.actions)
@@ -38,40 +35,43 @@ export class ThirdPartyExecutorService {
       try {
         let r: { resultText: string } | null = null;
         if (type === 'gmail_send') {
-          if (!integrationsEnabled.gmail_send) {
-            const reason = integrationsEnabled.reasons?.gmail_send ?? 'disabled_or_not_connected';
+          const conn = integrationsGate.connections['gmail'];
+          if (!conn?.connected || !conn?.access_token) {
+            const reason = 'Chưa kết nối Gmail hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
             results.push(`SKIPPED: Gmail integration (${reason})`);
             continue;
           }
-          r = await this.gmail.sendEmailDraft(a);
+          r = await this.gmail.sendEmailDraft(a, conn.access_token);
         } else if (type === 'calendar_create') {
-          if (!integrationsEnabled.calendar_create) {
-            const reason =
-              integrationsEnabled.reasons?.calendar_create ?? 'disabled_or_not_connected';
+          const conn = integrationsGate.connections['google_calendar'];
+          if (!conn?.connected || !conn?.access_token) {
+            const reason = 'Chưa kết nối Google Calendar hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
             results.push(`SKIPPED: Google Calendar integration (${reason})`);
             continue;
           }
-          r = await this.calendar.createCalendarEvent(a);
+          r = await this.calendar.createCalendarEvent(a, conn.access_token);
         } else if (type === 'drive_upload') {
-          if (!integrationsEnabled.drive_upload) {
-            const reason = integrationsEnabled.reasons?.drive_upload ?? 'disabled_or_not_connected';
+          const conn = integrationsGate.connections['google_drive'];
+          if (!conn?.connected || !conn?.access_token) {
+            const reason = 'Chưa kết nối Google Drive hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
             results.push(`SKIPPED: Google Drive integration (${reason})`);
             continue;
           }
-          r = await this.drive.uploadFile(a);
+          r = await this.drive.uploadFile(a, conn.access_token);
         } else if (type === 'notion_update') {
-          if (!integrationsEnabled.notion_update) {
-            const reason = integrationsEnabled.reasons?.notion_update ?? 'disabled_or_not_connected';
+          const conn = integrationsGate.connections['notion'];
+          if (!conn?.connected || !conn?.access_token) {
+            const reason = 'Chưa kết nối Notion hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
             results.push(`SKIPPED: Notion integration (${reason})`);
             continue;
           }
-          r = await this.notion.upsertPage(a);
+          r = await this.notion.upsertPage(a, conn.access_token);
         } else {
-          r = { resultText: `MVP_SIMULATED: Action ${type} (unknown handler)` };
+          r = { resultText: `Action ${type} (không rõ handler)` };
         }
 
         results.push(r.resultText);
@@ -99,6 +99,50 @@ export class ThirdPartyExecutorService {
       : 'Đã approve. (Không có action trong draft payload.)';
 
     return { executeResultText, executionLog };
+  }
+
+  async executeSingleAction(
+    action: any,
+    integrationsGate: {
+      providerStatusString: string;
+      connections: Record<string, any>;
+    },
+  ): Promise<{ resultText: string }> {
+    const type = String(action?.type ?? action?.action_type ?? 'unknown');
+
+    if (type === 'gmail_send' || type === 'reply_email') {
+      const conn = integrationsGate.connections['gmail'];
+      if (!conn?.connected || !conn?.access_token) {
+        throw new Error('Chưa kết nối Gmail hoặc thiếu token');
+      }
+      return await this.gmail.sendEmailDraft(action, conn.access_token);
+    } 
+    
+    if (type === 'calendar_create' || type === 'create_calendar_event') {
+      const conn = integrationsGate.connections['google_calendar'];
+      if (!conn?.connected || !conn?.access_token) {
+        throw new Error('Chưa kết nối Google Calendar hoặc thiếu token');
+      }
+      return await this.calendar.createCalendarEvent(action, conn.access_token);
+    }
+
+    if (type === 'drive_upload') {
+      const conn = integrationsGate.connections['google_drive'];
+      if (!conn?.connected || !conn?.access_token) {
+        throw new Error('Chưa kết nối Google Drive hoặc thiếu token');
+      }
+      return await this.drive.uploadFile(action, conn.access_token);
+    }
+
+    if (type === 'notion_update') {
+      const conn = integrationsGate.connections['notion'];
+      if (!conn?.connected || !conn?.access_token) {
+        throw new Error('Chưa kết nối Notion hoặc thiếu token');
+      }
+      return await this.notion.upsertPage(action, conn.access_token);
+    }
+
+    throw new Error(`Không hỗ trợ action type: ${type}`);
   }
 }
 

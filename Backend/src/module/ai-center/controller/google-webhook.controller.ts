@@ -17,9 +17,14 @@ type WebhookBody = {
   user_id?: string;
 };
 
+import { UsersService } from '../../accounts/service/users.service';
+
 @Controller('integrations/google')
 export class GoogleWebhookController {
-  constructor(private readonly tasksService: TasksService) {}
+  constructor(
+    private readonly tasksService: TasksService,
+    private readonly usersService: UsersService,
+  ) {}
 
   @Post('gmail/webhook')
   async gmailWebhook(
@@ -48,6 +53,16 @@ export class GoogleWebhookController {
         status: 'skipped',
         reason:
           'Thiếu workspace_id/user_id/agent_id/prompt trong webhook payload.',
+      };
+    }
+
+    const gate = await this.usersService.getExecutorIntegrationsGate(userId);
+    // Nếu event thuộc về gmail nhưng user chưa bật/không hợp lệ
+    // Hiện tại controller dùng chung, nhưng ta có thể check chung
+    if (!gate.connections['gmail']?.connected && !gate.connections['google_calendar']?.connected) {
+      return {
+        status: 'skipped',
+        reason: 'User chưa bật hoặc cấu hình Google Integration bị lỗi.',
       };
     }
 

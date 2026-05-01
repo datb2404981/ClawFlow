@@ -46,6 +46,7 @@ export type AgentsDocument = HydratedDocument<Agents>;
 export const AgentsSchema = SchemaFactory.createForClass(Agents);
 
 export const TASK_STATUS_VALUES = [
+  'pending',
   'scheduled',
   'in_progress',
   'waiting_approval',
@@ -65,6 +66,10 @@ export class TaskMessage {
 
   @Prop({ type: String, required: true })
   content!: string;
+
+  /** Các bước xử lý (Gemini-like steps) */
+  @Prop({ type: [String], default: [] })
+  steps?: string[];
 
   @Prop({ type: Date, default: () => new Date() })
   createdAt?: Date;

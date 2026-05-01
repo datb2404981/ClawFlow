@@ -16,6 +16,11 @@ class ChatRequest(BaseModel):
       description = "URL of the file(PDF,Audio,Image) to be processed"
     )
 
+    integrations: Optional[dict] = Field(
+      default=None,
+      description="Integration connection states and tokens from Backend"
+    )
+
 
 # 2. Định nghĩa Contract Đầu ra
 class ChatResponse(BaseModel):

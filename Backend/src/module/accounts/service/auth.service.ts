@@ -212,6 +212,19 @@ export class AuthService {
         fullName,
         avatar_url: googleUser.picture,
       });
+    } else {
+      const fullName = [googleUser.firstName, googleUser.lastName]
+        .filter(Boolean)
+        .join(' ');
+      const $set: Record<string, unknown> = { sso_provider: 'google' };
+      if (fullName) $set.fullName = fullName;
+      if (googleUser.picture) $set.avatar_url = googleUser.picture;
+      await this.userModel.updateOne({ _id: doc._id }, { $set });
+      const refreshed = await this.userModel.findById(doc._id);
+      if (!refreshed) {
+        throw new UnauthorizedException('Không tải lại được tài khoản sau đăng nhập Google.');
+      }
+      doc = refreshed;
     }
     return doc.toJSON() as unknown as IUser;
   }

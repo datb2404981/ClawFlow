@@ -31,7 +31,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react'
-import { ACCESS_TOKEN_KEY, setAccessToken } from '../api/client'
+import { ACCESS_TOKEN_KEY, resolveWsOrigin, setAccessToken } from '../api/client'
 import { getApiErrorMessage } from '../api/errors'
 import {
   createWorkspace,
@@ -43,6 +43,7 @@ import { deleteAgent, fetchAgents, type Agent } from '../api/agents'
 import { fetchTasks, type Task, type TaskStatus } from '../api/tasks'
 import { BRAND_TAGLINE, SIDEBAR } from '../navigation/sidebarNav'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { io } from 'socket.io-client'
 
 const subIcon = { className: 'h-4 w-4 shrink-0', strokeWidth: 1.75 as const }
 
@@ -397,6 +398,46 @@ export function WorkspaceAppLayout() {
       }
       setReady(true)
     })()
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId) return
+    const wsOrigin = resolveWsOrigin()
+    if (!wsOrigin) return
+
+    const socket = io(wsOrigin, {
+      transports: ['websocket', 'polling'],
+    })
+
+    socket.on('connect', () => {
+      socket.emit('joinWorkspace', workspaceId)
+    })
+
+    socket.on(
+      'task.status',
+      (payload: { taskId?: string; status?: string; result?: string }) => {
+        const id = String(payload?.taskId ?? '')
+        const status = String(payload?.status ?? '') as TaskStatus
+        if (!id || !status) return
+        setTasks((prev) =>
+          prev.map((t) =>
+            t._id === id
+              ? {
+                  ...t,
+                  status,
+                  ...(typeof payload?.result === 'string' && payload.result.trim()
+                    ? { result: payload.result }
+                    : {}),
+                }
+              : t,
+          ),
+        )
+      },
+    )
+
+    return () => {
+      socket.disconnect()
+    }
   }, [workspaceId])
 
   useEffect(() => {

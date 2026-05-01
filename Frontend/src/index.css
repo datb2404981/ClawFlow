@@ -826,3 +826,12 @@ body::-webkit-scrollbar {
 .cf-ui-btn-ghost:hover {
   background: var(--cf-sidebar-row-hover);
 }
+
+/* Thinking ellipsis animation — "Đang suy nghĩ..." */
+@keyframes ellipsis {
+  0% { width: 0; }
+  25% { width: 0.35em; }
+  50% { width: 0.7em; }
+  75% { width: 1em; }
+  100% { width: 0; }
+}

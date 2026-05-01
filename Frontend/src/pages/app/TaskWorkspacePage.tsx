@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   Bolt,
   Bot,
+  Check,
   ChevronDown,
   ChevronRight,
   Maximize2,
@@ -14,50 +15,148 @@ import {
   PanelRightOpen,
   Send,
   Sparkles,
+  Square,
   Timer,
-  Wand2,
   X,
-  Zap,
+  Calendar,
+  FileText,
+  Clock3,
+  Github,
+  MessageSquare,
+  MoreHorizontal,
 } from 'lucide-react'
+import { siNotion } from 'simple-icons'
 
-function AgentMessageContent({ content }: { content: string }) {
-  let thought = '';
-  let mainContent = content;
+function AgentMessageContent({
+  content,
+  liveThought,
+  steps = [],
+}: {
+  content: string
+  liveThought?: string | null
+  steps?: string[]
+}) {
+  const { thought, body: mainContent } = extractThoughtAndBody(content)
+  const mergedThought = (liveThought && liveThought.trim()) || thought
+  const contentNorm = normalizeThoughtTags(content)
+  const isStreaming =
+    /<thought/i.test(contentNorm) && !/<\/thought>/i.test(contentNorm)
+  const [thoughtOpen, setThoughtOpen] = useState(false)
+  const thoughtPanelOpen = isStreaming || thoughtOpen
 
-  const thoughtMatch = content.match(/<thought>([\s\S]*?)<\/thought>/);
-  if (thoughtMatch) {
-    thought = thoughtMatch[1].trim();
-    mainContent = content.replace(/<thought>[\s\S]*?<\/thought>/, '').trim();
-  }
-
-  const [thoughtOpen, setThoughtOpen] = useState(false);
+  const mainTrimmed = (mainContent ?? '').trim()
+  const thoughtTrimmed = (mergedThought ?? '').trim()
+  // Không fallback thought sang câu trả lời chính: suy luận chỉ ở panel riêng.
+  const showThoughtPanel = Boolean(thoughtTrimmed)
+  const proseSource = mainTrimmed
+  useEffect(() => {
+    // #region agent log
+    if (
+      /PASS|FAIL|Lý do:|Gợi ý:/i.test(content ?? '') ||
+      /PASS|FAIL|Lý do:|Gợi ý:/i.test(proseSource ?? '')
+    ) {
+      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:'ui-render',hypothesisId:'H4',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:56',message:'agent_message_render_contains_review_markers',data:{contentLen:(content ?? '').length,thoughtLen:(thoughtTrimmed ?? '').length,bodyLen:(mainTrimmed ?? '').length,proseHasReview:/PASS|FAIL|Lý do:|Gợi ý:/i.test(proseSource ?? '')},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+  }, [content, proseSource, thoughtTrimmed, mainTrimmed])
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:'ui-thought-visibility',hypothesisId:'H9',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:67',message:'agent_message_thought_visibility',data:{contentLen:(content ?? '').length,hasThoughtTag:/<thought/i.test(content ?? ''),thoughtLen:(thoughtTrimmed ?? '').length,isStreaming,showThoughtPanel,mainLen:(mainTrimmed ?? '').length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [content, thoughtTrimmed, isStreaming, showThoughtPanel, mainTrimmed])
 
   return (
-    <div className="w-full">
-      {thought && (
+    <div className="w-full space-y-4">
+      {/* Gemini-like Process Tracker */}
+      {steps.length > 0 && (
+        <div className="space-y-2 py-1">
+          {steps.map((step, i) => (
+            <div 
+              key={i} 
+              className="flex items-center gap-2.5 text-[0.82rem] animate-in fade-in slide-in-from-left-2 duration-500 fill-mode-both"
+              style={{ animationDelay: `${i * 100}ms` }}
+            >
+               <div className={`flex h-4.5 w-4.5 items-center justify-center rounded-full ring-1 ${
+                 i === steps.length - 1 ? 'bg-blue-50 ring-blue-100' : 'bg-emerald-50 ring-emerald-100'
+               }`}>
+                 {i === steps.length - 1 && isStreaming ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                 ) : (
+                    <Check className="h-2.5 w-2.5 text-emerald-600" strokeWidth={3} />
+                 )}
+               </div>
+               <span className={`${
+                 i === steps.length - 1 ? 'font-semibold text-slate-700' : 'text-slate-500'
+               }`}>
+                 {step}
+               </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showThoughtPanel && (
         <details 
-          className="mb-4 group [&_summary::-webkit-details-marker]:hidden"
-          open={thoughtOpen}
+          className="group overflow-hidden rounded-2xl border shadow-sm transition-all [&_summary::-webkit-details-marker]:hidden"
+          style={{
+            background: 'var(--cf-chat-thought-bg)',
+            borderColor: 'var(--cf-chat-thought-border)',
+            boxShadow: 'var(--cf-chat-thought-shadow)',
+          }}
+          open={thoughtPanelOpen}
           onToggle={(e) => setThoughtOpen(e.currentTarget.open)}
         >
-          <summary className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 group-open:bg-slate-200 transition-colors">
-              {thoughtOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <summary
+            className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 transition-colors hover:opacity-80"
+            style={{ color: 'var(--cf-chat-thought-fg)' }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="flex h-6 w-6 items-center justify-center rounded-lg transition-colors"
+                style={{ background: 'var(--cf-chat-thought-inner-bg)' }}
+              >
+                <Sparkles className="h-3.5 w-3.5 text-[var(--cf-electric)]" strokeWidth={2} />
+              </span>
+              <span className="text-[0.68rem] font-bold uppercase tracking-widest opacity-70">
+                Tiến trình suy nghĩ
+              </span>
+              {isStreaming && (
+                <span className="relative ml-1 flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--cf-electric)] opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--cf-electric)]" />
+                </span>
+              )}
             </span>
-            Thought Process
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded transition-transform"
+              style={{ background: 'var(--cf-chat-thought-inner-bg)' }}
+            >
+              {thoughtPanelOpen
+                ? <ChevronDown className="h-3 w-3 opacity-50" />
+                : <ChevronRight className="h-3 w-3 opacity-50" />}
+            </span>
           </summary>
-          <div className="mt-3 rounded-xl bg-slate-50/50 p-4 text-sm text-slate-600 border border-slate-100">
+          <div
+            className="border-t px-4 py-3.5 text-[0.88rem] leading-relaxed"
+            style={{
+              borderColor: 'var(--cf-chat-thought-border)',
+              color: 'var(--cf-chat-thought-fg)',
+              background: 'var(--cf-chat-thought-inner-bg)',
+            }}
+          >
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={TASK_CHAT_MD_COMPONENTS}>
-              {thought}
+              {mergedThought}
             </ReactMarkdown>
           </div>
         </details>
       )}
-      {mainContent && (
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={TASK_CHAT_MD_COMPONENTS}>
-          {mainContent}
-        </ReactMarkdown>
-      )}
+      {proseSource ? (
+        <div className="prose max-w-none" style={{ color: 'var(--cf-chat-prose)' }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={TASK_CHAT_MD_COMPONENTS}>
+            {proseSource}
+          </ReactMarkdown>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -65,16 +164,26 @@ function AgentMessageContent({ content }: { content: string }) {
 import { fetchAgent, fetchAgents, type Agent } from '../../api/agents'
 import {
   appendTaskMessage,
+  deleteTask,
   fetchTask,
+  mergeTaskMessagesPreferLocal,
   taskToChatMessages,
   type Task,
+  updateTask,
 } from '../../api/tasks'
+import { fetchIntegrationsStatus, fetchIntegrationConnectUrl } from '../../api/appSettings'
+import { resolveWsOrigin } from '../../api/client'
+import { getApiErrorMessage } from '../../api/errors'
+import { extractThoughtAndBody, normalizeThoughtTags } from '../../utils/assistantDisplay'
 import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
 import { TASK_CHAT_MD_COMPONENTS } from './taskChatMarkdown'
+import { ActionCards } from '../../components/ActionCards'
+import { io } from 'socket.io-client'
 
 const STATUS_LINES: Partial<
   Record<Task['status'], { label: string; dot: string }>
 > = {
+  pending: { label: 'Đang xếp hàng', dot: 'bg-indigo-400' },
   scheduled: { label: 'Đã lên lịch', dot: 'bg-slate-400' },
   in_progress: { label: 'Đang chạy', dot: 'bg-sky-500' },
   waiting_approval: { label: 'Chờ duyệt', dot: 'bg-amber-500' },
@@ -83,12 +192,130 @@ const STATUS_LINES: Partial<
 }
 
 function TaskAutomationPanel(props: {
+  workspaceId: string
   open: boolean
   onClose: () => void
+  scheduleOn: boolean
+  setScheduleOn: Dispatch<SetStateAction<boolean>>
+  cycle: string
+  setCycle: Dispatch<SetStateAction<string>>
+  time: string
+  setTime: Dispatch<SetStateAction<string>>
+  selectedMonthDays: number[]
+  setSelectedMonthDays: Dispatch<SetStateAction<number[]>>
 }) {
-  const { open, onClose } = props
-  const [scheduleOn, setScheduleOn] = useState(true)
+  const {
+    workspaceId,
+    open,
+    onClose,
+    scheduleOn,
+    setScheduleOn,
+    cycle,
+    setCycle,
+    time,
+    setTime,
+    selectedMonthDays,
+    setSelectedMonthDays,
+  } = props
   const [eventOn, setEventOn] = useState(false)
+  const [selectedDays, setSelectedDays] = useState(['T2'])
+  const [isLinked, setIsLinked] = useState(false)
+  const [loadingLink, setLoadingLink] = useState(true)
+
+  useEffect(() => {
+    if (open) {
+      void (async () => {
+        try {
+          const status = await fetchIntegrationsStatus()
+          const google = status.providers.filter(p => p.provider_group === 'google')
+          const connected = google.some(p => p.connection_state.connected && !p.connection_state.needs_reauth)
+          setIsLinked(connected)
+        } catch {
+          setIsLinked(false)
+        } finally {
+          setLoadingLink(false)
+        }
+      })()
+    }
+  }, [open])
+
+  const toggleDay = (day: string) => {
+    setSelectedDays(prev => 
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    )
+  }
+
+  const toggleMonthDay = (day: number) => {
+    setSelectedMonthDays(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    )
+  }
+
+  const handleConnectGoogle = async () => {
+    try {
+      if (!workspaceId.trim()) {
+        alert('Thiếu workspace — không tạo được link liên kết.')
+        return
+      }
+      const { connect_url } = await fetchIntegrationConnectUrl(
+        'gmail',
+        workspaceId,
+      )
+      window.location.href = connect_url
+    } catch (err) {
+      console.error('Failed to get connect URL', err)
+      alert('Không lấy được link liên kết. Vui lòng thử lại sau.')
+    }
+  }
+
+  const events = [
+    {
+      id: 'gmail',
+      title: 'Email mới',
+      desc: 'Nếu tiêu đề chứa từ khoá (ví dụ)',
+      icon: <Mail className="h-4 w-4" />,
+      color: 'text-rose-500',
+    },
+    {
+      id: 'calendar',
+      title: 'Sự kiện lịch',
+      desc: 'Khi có lời mời hoặc sự kiện mới',
+      icon: <Calendar className="h-4 w-4" />,
+      color: 'text-blue-500',
+    },
+    {
+      id: 'drive',
+      title: 'File mới',
+      desc: 'Khi file được tải lên thư mục chọn',
+      icon: <FileText className="h-4 w-4" />,
+      color: 'text-amber-500',
+    },
+    {
+      id: 'notion',
+      title: 'Notion Page',
+      desc: 'Khi có trang mới trong database',
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+          <path d={siNotion.path} />
+        </svg>
+      ),
+      color: 'text-slate-900',
+    },
+    {
+      id: 'github',
+      title: 'GitHub Event',
+      desc: 'Khi có Pull Request hoặc Issue mới',
+      icon: <Github className="h-4 w-4" />,
+      color: 'text-slate-800',
+    },
+    {
+      id: 'slack',
+      title: 'Slack Message',
+      desc: 'Khi có tin nhắn mới trong channel',
+      icon: <MessageSquare className="h-4 w-4" />,
+      color: 'text-purple-600',
+    },
+  ]
 
   return (
     <aside
@@ -102,8 +329,8 @@ function TaskAutomationPanel(props: {
     >
       <div className="flex h-[4.5rem] shrink-0 items-center justify-between border-b border-slate-200/40 bg-[color-mix(in_srgb,var(--color-cf-surface-container-low)_88%,transparent)] px-8 backdrop-blur-md">
         <h2 className="flex items-center gap-2 text-lg font-bold tracking-tight text-[var(--color-cf-on-surface,#191c1d)]">
-          <Wand2
-            className="h-[1.125rem] w-[1.125rem] text-[var(--color-cf-primary,#003ec7)]"
+          <Sparkles
+            className="h-5 w-5 text-[var(--color-cf-primary,#003ec7)]"
             aria-hidden
             strokeWidth={2}
           />
@@ -120,14 +347,14 @@ function TaskAutomationPanel(props: {
       </div>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-6">
-        <div className="relative overflow-hidden rounded-[1.5rem] bg-[var(--color-cf-surface-container-lowest,#ffffff)] p-6 shadow-[0_10px_30px_rgba(25,28,29,0.02)] ring-1 ring-slate-900/[0.04]">
-          <div className="pointer-events-none absolute left-0 right-0 top-0 h-1 bg-gradient-to-r from-[color-mix(in_srgb,var(--color-cf-primary)_35%,transparent)] to-[color-mix(in_srgb,var(--color-cf-primary-container)_35%,transparent)]" />
-          <div className="mb-6 flex items-center justify-between">
+        {/* Lịch chạy */}
+        <div className="relative overflow-hidden rounded-[1.5rem] bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.03)] ring-1 ring-slate-200/50">
+          <div className="mb-8 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-cf-surface-container,#edeeef)] text-[var(--color-cf-primary,#003ec7)]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">
                 <Timer className="h-5 w-5" strokeWidth={2} aria-hidden />
               </div>
-              <h3 className="text-base font-semibold text-[var(--color-cf-on-surface,#191c1d)]">
+              <h3 className="text-[17px] font-bold text-slate-800">
                 Lịch chạy
               </h3>
             </div>
@@ -137,122 +364,174 @@ function TaskAutomationPanel(props: {
               aria-checked={scheduleOn}
               onClick={() => setScheduleOn((v) => !v)}
               className={[
-                'relative h-6 w-12 cursor-pointer rounded-full transition-colors',
-                scheduleOn
-                  ? 'bg-[color-mix(in_srgb,var(--color-cf-primary)_22%,transparent)]'
-                  : 'bg-[var(--color-cf-surface-container-highest,#e1e3e4)]',
+                'relative flex h-6 w-11 cursor-pointer items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:ring-offset-2',
+                scheduleOn ? 'bg-blue-600' : 'bg-slate-200',
               ].join(' ')}
             >
               <span
                 className={[
-                  'absolute top-0.5 h-5 w-5 rounded-full bg-[var(--color-cf-primary,#003ec7)] shadow-sm transition-[left]',
-                  scheduleOn ? 'left-[calc(100%-1.375rem)]' : 'left-0.5',
-                  !scheduleOn && 'bg-white',
+                  'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                  scheduleOn ? 'translate-x-6' : 'translate-x-1',
                 ].join(' ')}
               />
             </button>
           </div>
-          <div className="space-y-5">
+
+          <div className={['space-y-6 transition-opacity', !scheduleOn && 'pointer-events-none opacity-40'].join(' ')}>
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[var(--color-cf-on-surface-variant,#434656)]">
+              <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 Chu kỳ
               </label>
               <div className="relative">
                 <select
-                  defaultValue="weekly"
-                  className="w-full appearance-none rounded-xl border-none bg-[var(--color-cf-surface-container,#edeeef)] py-3 pl-4 pr-10 text-sm font-medium text-[var(--color-cf-on-surface,#191c1d)] outline-none ring-0 focus:ring-2 focus:ring-[color-mix(in_srgb,var(--color-cf-primary)_35%,transparent)]"
+                  value={cycle}
+                  onChange={(e) => setCycle(e.target.value)}
+                  className="w-full appearance-none rounded-2xl border-none bg-slate-100 py-3.5 pl-5 pr-10 text-[15px] font-medium text-slate-800 outline-none ring-0 focus:ring-2 focus:ring-blue-100"
                 >
-                  <option>Hàng tuần</option>
-                  <option>Hàng ngày</option>
-                  <option>Hàng tháng</option>
+                  <option value="daily">Hàng ngày</option>
+                  <option value="weekly">Hàng tuần</option>
+                  <option value="monthly">Hàng tháng</option>
                 </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
-            <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[var(--color-cf-on-surface-variant,#434656)]">
-                Ngày trong tuần
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {['T2', 'T3', 'T4', 'T5', 'T6'].map((d, i) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className={[
-                      'flex h-10 min-w-[2.25rem] items-center justify-center rounded-xl px-2 text-sm font-medium transition-colors',
-                      i === 0
-                        ? 'bg-[var(--color-cf-primary,#003ec7)] text-white shadow-sm'
-                        : 'bg-[var(--color-cf-surface-container,#edeeef)] text-[var(--color-cf-on-surface,#191c1d)] hover:bg-[var(--color-cf-surface-container-high,#e1e3e4)]',
-                    ].join(' ')}
-                  >
-                    {d}
-                  </button>
-                ))}
+
+            {cycle === 'weekly' && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <label className="mb-3 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Ngày trong tuần
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((d) => {
+                    const active = selectedDays.includes(d)
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleDay(d)}
+                        className={[
+                          'flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold transition-all',
+                          active
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                        ].join(' ')}
+                      >
+                        {d}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
+            )}
+
+            {cycle === 'monthly' && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <label className="mb-3 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Ngày trong tháng
+                </label>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
+                    const active = selectedMonthDays.includes(d)
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleMonthDay(d)}
+                        className={[
+                          'flex aspect-square items-center justify-center rounded-lg text-[13px] font-bold transition-all',
+                          active
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                        ].join(' ')}
+                      >
+                        {d}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[var(--color-cf-on-surface-variant,#434656)]">
+              <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 Giờ
               </label>
-              <input
-                type="time"
-                defaultValue="09:00"
-                className="w-full max-w-[12rem] rounded-xl border-none bg-[var(--color-cf-surface-container,#edeeef)] py-3 px-4 text-sm font-medium text-[var(--color-cf-on-surface,#191c1d)] outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--color-cf-primary)_35%,transparent)]"
-              />
+              <div className="relative">
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className="w-full rounded-2xl border-none bg-slate-100 py-3.5 px-5 text-[15px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
+                />
+                <Clock3 className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="rounded-[1.5rem] bg-[var(--color-cf-surface-container-lowest,#ffffff)] p-6 opacity-90 shadow-[0_10px_30px_rgba(25,28,29,0.02)] ring-1 ring-slate-900/[0.04] transition-opacity hover:opacity-100">
+        {/* Theo sự kiện */}
+        <div className="rounded-[1.5rem] bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.03)] ring-1 ring-slate-200/50">
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-cf-surface-container,#edeeef)] text-[var(--color-cf-on-surface-variant,#434656)]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500">
                 <Bolt className="h-5 w-5" aria-hidden strokeWidth={2} />
               </div>
-              <h3 className="text-base font-semibold text-[var(--color-cf-on-surface,#191c1d)]">
+              <h3 className="text-[17px] font-bold text-slate-800">
                 Theo sự kiện
               </h3>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={eventOn}
-              onClick={() => setEventOn((v) => !v)}
-              className={[
-                'relative h-6 w-12 cursor-pointer rounded-full transition-colors',
-                eventOn
-                  ? 'bg-[color-mix(in_srgb,var(--color-cf-primary)_22%,transparent)]'
-                  : 'bg-[var(--color-cf-surface-container-high,#e7e8e9)]',
-              ].join(' ')}
-            >
-              <span
-                className={[
-                  'absolute top-0.5 h-5 w-5 rounded-full shadow-sm transition-[left]',
-                  eventOn
-                    ? 'left-[calc(100%-1.375rem)] bg-[var(--color-cf-primary,#003ec7)]'
-                    : 'left-0.5 bg-white',
-                ].join(' ')}
-              />
-            </button>
-          </div>
-          <div
-            className="pointer-events-none space-y-4 opacity-80"
-            aria-hidden
-          >
-            <div className="rounded-xl border border-[color-mix(in_srgb,var(--color-cf-outline-variant)_40%,transparent)] bg-[var(--color-cf-surface-container-low,#f3f4f5)] p-4">
-              <div className="mb-2 flex items-center gap-3">
-                <Mail
-                  className="h-[18px] w-[18px] text-[var(--color-cf-on-surface-variant,#434656)]"
-                  strokeWidth={2}
-                  aria-hidden
-                />
-                <span className="text-sm font-medium text-[var(--color-cf-on-surface,#191c1d)]">
-                  Email mới
-                </span>
-              </div>
-              <p className="pl-8 text-xs text-[var(--color-cf-on-surface-variant,#434656)]">
-                Nếu tiêu đề chứa từ khoá (ví dụ)
-              </p>
+            <div className="flex flex-col items-end gap-1">
+              {!isLinked ? (
+                <button
+                  type="button"
+                  onClick={() => void handleConnectGoogle()}
+                  className="rounded-full bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-600 transition-all hover:bg-blue-100 active:scale-95"
+                >
+                  Liên kết ngay
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={eventOn}
+                  onClick={() => setEventOn((v) => !v)}
+                  className={[
+                    'relative flex h-6 w-11 cursor-pointer items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:ring-offset-2',
+                    eventOn ? 'bg-blue-600' : 'bg-slate-200',
+                  ].join(' ')}
+                >
+                  <span
+                    className={[
+                      'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                      eventOn ? 'translate-x-6' : 'translate-x-1',
+                    ].join(' ')}
+                  />
+                </button>
+              )}
+              {!isLinked && !loadingLink && (
+                <span className="text-[10px] font-medium text-rose-500">Yêu cầu quyền Google</span>
+              )}
             </div>
+          </div>
+
+          <div className={['space-y-3 transition-all', (!eventOn || !isLinked) && 'pointer-events-none opacity-60 grayscale-[0.5]'].join(' ')}>
+            {events.map((ev) => (
+              <div
+                key={ev.id}
+                className="group relative cursor-pointer rounded-2xl border border-slate-100 bg-slate-50/50 p-4 transition-all hover:border-blue-200 hover:bg-blue-50/30"
+              >
+                <div className="flex items-center gap-4">
+                  <div className={['flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/50', ev.color].join(' ')}>
+                    {ev.icon}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-[14px] font-bold text-slate-800">{ev.title}</h4>
+                    <p className="truncate text-[12px] text-slate-500">{ev.desc}</p>
+                  </div>
+                  <div className="h-2 w-2 rounded-full bg-slate-200 group-hover:bg-blue-400" />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -260,7 +539,7 @@ function TaskAutomationPanel(props: {
       <div className="shrink-0 border-t border-slate-200/50 bg-[var(--color-cf-surface-container-low,#f3f4f5)] p-6">
         <button
           type="button"
-          className="w-full rounded-xl bg-gradient-to-r from-[var(--color-cf-primary,#003ec7)] to-[var(--color-cf-primary-container,#0052ff)] py-4 text-base font-semibold tracking-wide text-white shadow-[0_10px_20px_rgba(0,62,199,0.18)] transition-shadow hover:shadow-[0_15px_30px_rgba(0,62,199,0.22)]"
+          className="w-full rounded-2xl bg-blue-600 py-4 text-[16px] font-bold tracking-wide text-white shadow-[0_8px_20px_rgba(37,99,235,0.2)] transition-all hover:bg-blue-700 hover:shadow-[0_12px_28px_rgba(37,99,235,0.3)] active:scale-[0.98]"
         >
           Lưu cấu hình
         </button>
@@ -269,13 +548,26 @@ function TaskAutomationPanel(props: {
   )
 }
 
+
+const NODE_STEP_LABELS: Record<string, string> = {
+  leader_agent: 'Đang phân tích yêu cầu...',
+  integration_agent: 'Đang thao tác với ứng dụng...',
+  content_agent: 'Đang soạn thảo nội dung...',
+  reviewer: 'Đang kiểm tra chất lượng...',
+  tools: 'Đang thực thi công cụ...',
+  memory_bootstrap: 'Đang truy xuất bộ nhớ...',
+  memory_writer: 'Đang lưu trữ thông tin...',
+}
+
 export function TaskWorkspacePage() {
   const { taskId = '', workspaceId: widFromRoute } = useParams()
   const navigate = useNavigate()
   const ctx = useOutletContext<WsOutlet>()
+  const refresh = ctx.refresh
   /** Ưu tiên segment URL — tránh context chưa sẵn sàng trong edge case hydrate. */
   const workspaceId = widFromRoute || ctx.workspaceId
   const [task, setTask] = useState<Task | null>(null)
+  const [leaderThoughtStream, setLeaderThoughtStream] = useState('')
   const [agentName, setAgentName] = useState('')
   const [err, setErr] = useState('')
   const [draft, setDraft] = useState('')
@@ -290,6 +582,19 @@ export function TaskWorkspacePage() {
   const modalComposerTaRef = useRef<HTMLTextAreaElement>(null)
   const agentPickerRef = useRef<HTMLButtonElement>(null)
   const agentPopoverRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const scheduleBtnRef = useRef<HTMLButtonElement>(null)
+  const schedulePopupRef = useRef<HTMLDivElement>(null)
+  
+  // Automation settings (synced with panel)
+  const [scheduleOn, setScheduleOn] = useState(false)
+  const [cycle, setCycle] = useState('daily')
+  const [time, setTime] = useState('09:00')
+  const [selectedMonthDays, setSelectedMonthDays] = useState([1])
+  const [schedulePopupOpen, setSchedulePopupOpen] = useState(false)
+  const [taskMenuOpen, setTaskMenuOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+
   const base = `/app/w/${workspaceId}`
 
   useEffect(() => {
@@ -298,7 +603,7 @@ export function TaskWorkspacePage() {
       setErr('')
       try {
         const t = await fetchTask(taskId, workspaceId)
-        setTask(t)
+        setTask((prev) => mergeTaskMessagesPreferLocal(prev, t))
         try {
           const a = await fetchAgent(t.agent_id, workspaceId)
           setSelectedAgent(a)
@@ -309,10 +614,146 @@ export function TaskWorkspacePage() {
         }
       } catch (e) {
         setTask(null)
-        setErr(e instanceof Error ? e.message : 'Không tải được task')
+        setErr(getApiErrorMessage(e, 'Không tải được task'))
       }
     })()
   }, [taskId, workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId || !taskId) return
+    const wsOrigin = resolveWsOrigin()
+    if (!wsOrigin) return
+
+    const socket = io(wsOrigin, {
+      transports: ['websocket', 'polling'],
+    })
+
+    socket.on('connect', () => {
+      setLeaderThoughtStream('')
+      socket.emit('joinWorkspace', workspaceId)
+    })
+
+    socket.on('task.stream', (payload: { 
+      taskId?: string; 
+      type?: 'chunk' | 'status';
+      chunk?: string; 
+      node?: string;
+      status?: string;
+      tool?: string;
+    }) => {
+      if (!payload || String(payload.taskId ?? '') !== String(taskId)) return
+
+      const type = payload.type || 'chunk'
+      const chunk = String(payload.chunk ?? '')
+      const node = String(payload.node ?? '')
+      // #region agent log
+      if (type === 'status') {
+        fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskId}`,hypothesisId:'H10',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:646',message:'stream_status_event',data:{node,status:payload.status ?? '',tool:payload.tool ?? ''},timestamp:Date.now()})}).catch(()=>{});
+      }
+      // #endregion
+      // #region agent log
+      if (/PASS|FAIL|Lý do:|Gợi ý:|<thought/i.test(chunk)) {
+        fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskId}`,hypothesisId:'H1',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:635',message:'incoming_stream_chunk_with_markers',data:{type,node,status:payload.status ?? '',chunkPreview:chunk.slice(0,160)},timestamp:Date.now()})}).catch(()=>{});
+      }
+      // #endregion
+
+      if (type === 'chunk' && chunk && node === 'leader_agent') {
+        // #region agent log
+        fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskId}`,hypothesisId:'H10',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:650',message:'leader_chunk_received',data:{chunkLen:chunk.length,hasThoughtTag:/<thought/i.test(chunk),hasReviewMarker:/PASS|FAIL|Lý do:|Gợi ý:/i.test(chunk),chunkPreview:chunk.slice(0,120)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        setLeaderThoughtStream((prev) => `${prev}${chunk}`)
+      }
+
+      setTask((prev) => {
+        if (!prev || String(prev._id) !== String(taskId)) return prev
+        // Chunk trễ sau khi task đã kết thúc — không ghi đè status/messages (gây nháy / mất nội dung)
+        if (prev.status === 'completed' || prev.status === 'failed') {
+          return prev
+        }
+        const messages = Array.isArray(prev.messages) ? [...prev.messages] : []
+        let last = messages[messages.length - 1]
+
+        if (!last || last.role === 'user') {
+          last = {
+            role: 'assistant',
+            content: '',
+            steps: [],
+            createdAt: new Date().toISOString(),
+          }
+          messages.push(last)
+        }
+
+        if (type === 'status') {
+          let label = NODE_STEP_LABELS[node]
+          if (payload.status === 'tool_call' && payload.tool) {
+            const TOOL_FRIENDLY: Record<string, string> = {
+              delegate_to_integration: 'Đang kết nối ứng dụng...',
+              read_gmail_tool: 'Đang đọc email...',
+              web_search_tool: 'Đang tìm kiếm web...',
+              tavily_search: 'Đang tìm kiếm web...',
+            }
+            label = TOOL_FRIENDLY[payload.tool] || `Đang thực thi: ${payload.tool}`
+          }
+
+          if (label && last.role === 'assistant') {
+            const steps = Array.isArray(last.steps) ? [...last.steps] : []
+            if (!steps.includes(label)) {
+              steps.push(label)
+              messages[messages.length - 1] = { ...last, steps }
+            }
+          }
+        } else {
+          // type === 'chunk'
+          if (chunk && last.role === 'assistant') {
+            messages[messages.length - 1] = {
+              ...last,
+              content: `${String(last.content ?? '')}${chunk}`,
+            }
+          }
+        }
+
+        return {
+          ...prev,
+          status: 'in_progress',
+          messages,
+        }
+      })
+    })
+
+    socket.on('task.status', (payload: { taskId?: string; status?: string; result?: string }) => {
+      if (!payload || String(payload.taskId ?? '') !== String(taskId)) return
+      // Cập nhật status ngay lập tức (real-time) từ payload
+      const newStatus = payload.status as Task['status'] | undefined
+      if (newStatus) {
+        setTask((prev) => {
+          if (!prev || String(prev._id) !== String(taskId)) return prev
+          // #region agent log
+          fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-status:${taskId}`,hypothesisId:'H11',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:711',message:'task_status_update_local',data:{fromStatus:prev.status,toStatus:newStatus,prevMessagesLen:Array.isArray(prev.messages)?prev.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
+          return { ...prev, status: newStatus }
+        })
+        if (newStatus === 'completed' || newStatus === 'failed') {
+          setLeaderThoughtStream('')
+        }
+      }
+      // Sau đó fetch full task data để đồng bộ messages
+      void (async () => {
+        try {
+          const t = await fetchTask(taskId, workspaceId)
+          // #region agent log
+          fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-status-fetch:${taskId}`,hypothesisId:'H11',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:724',message:'task_status_fetch_task_response',data:{fetchedStatus:t?.status ?? '',fetchedMessagesLen:Array.isArray(t?.messages)?t.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
+          setTask((prev) => mergeTaskMessagesPreferLocal(prev, t))
+        } catch {
+          // giữ im lặng: status sẽ đồng bộ lại ở lần reload tiếp theo
+        }
+      })()
+    })
+
+    return () => {
+      socket.disconnect()
+    }
+  }, [workspaceId, taskId])
 
   useEffect(() => {
     if (!workspaceId) return
@@ -353,16 +794,79 @@ export function TaskWorkspacePage() {
       .toUpperCase()
   }
 
-  function handleSelectAgent(a: Agent) {
+  const handleSelectAgent = async (a: Agent) => {
+    // Optimistic update: ngay lập tức cập nhật UI
     setSelectedAgent(a)
     setAgentName(a.name)
     setAgentPickerOpen(false)
+    // Persist vào DB để F5 không mất
+    if (task && workspaceId) {
+      try {
+        const updated = await updateTask(task._id, workspaceId, { agent_id: a._id })
+        setTask((prev) => prev ? { ...prev, agent_id: updated.agent_id } : prev)
+      } catch (e) {
+        // Không block UX nếu lỗi — chỉ log
+        console.warn('[AgentPicker] Không lưu được agent_id vào task:', e)
+      }
+    }
+  }
+
+  const handleRenameTask = async () => {
+    if (!task || !workspaceId) return
+    setTaskMenuOpen(false)
+    const nextTitle = window.prompt('Nhập tên mới cho task:', task.title)?.trim()
+    if (!nextTitle || nextTitle === task.title) return
+    try {
+      const updated = await updateTask(task._id, workspaceId, { title: nextTitle })
+      setTask(updated)
+    } catch (e) {
+      setErr(getApiErrorMessage(e, 'Không đổi được tên task'))
+    }
+  }
+
+  const handleDeleteTask = async () => {
+    if (!task || !workspaceId) return
+    setTaskMenuOpen(false)
+    setDeleteConfirmOpen(true)
+  }
+
+  const confirmDeleteTask = async () => {
+    if (!task || !workspaceId) return
+    setDeleteConfirmOpen(false)
+    try {
+      await deleteTask(task._id, workspaceId)
+      refresh()
+      navigate(`${base}/dashboard`)
+    } catch (e) {
+      setErr(getApiErrorMessage(e, 'Không xoá được task'))
+    }
   }
 
   const statusBadge = task
     ? STATUS_LINES[task.status] ?? STATUS_LINES.scheduled!
     : null
-  const chatMessages = task ? taskToChatMessages(task) : []
+  const chatMessages = useMemo(
+    () => (task ? taskToChatMessages(task) : []),
+    [task],
+  )
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`chat-messages:${taskId}`,hypothesisId:'H12',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:815',message:'chat_messages_snapshot',data:{taskStatus:task?.status ?? '',chatLen:chatMessages.length,rawTaskMessagesLen:Array.isArray(task?.messages)?task?.messages?.length:0,lastRole:chatMessages.length>0?chatMessages[chatMessages.length-1]?.role:'none',lastLen:chatMessages.length>0?String(chatMessages[chatMessages.length-1]?.content ?? '').length:0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [chatMessages, task?.messages, task?.status, taskId])
+  const lastAssistantIndex = [...chatMessages]
+    .map((m, idx) => ({ m, idx }))
+    .filter(({ m }) => m.role === 'assistant')
+    .map(({ idx }) => idx)
+    .pop()
+  const leaderLiveThought = leaderThoughtStream
+    ? extractThoughtAndBody(leaderThoughtStream).thought
+    : null
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`leader-thought:${taskId}`,hypothesisId:'H13',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:826',message:'leader_live_thought_snapshot',data:{streamLen:(leaderThoughtStream ?? '').length,thoughtLen:(leaderLiveThought ?? '').length,streamHasThoughtTag:/<thought/i.test(leaderThoughtStream ?? ''),streamPreview:String(leaderThoughtStream ?? '').slice(0,120)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [leaderThoughtStream, leaderLiveThought, taskId])
 
   const autoResize = useCallback(
     (el: HTMLTextAreaElement | null) => {
@@ -388,14 +892,30 @@ export function TaskWorkspacePage() {
     if (!text || !task || !workspaceId || sending) return
     setSending(true)
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`submit-update:${task._id}`,hypothesisId:'H15',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:871',message:'submit_update_before_append',data:{taskId:task._id,taskStatus:task.status,currentMessagesLen:Array.isArray(task.messages)?task.messages.length:0,textLen:text.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const updated = await appendTaskMessage(task._id, workspaceId, text)
+      // #region agent log
+      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`submit-update:${task._id}`,hypothesisId:'H15',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:875',message:'submit_update_after_append',data:{returnedTaskId:updated?._id ?? '',returnedStatus:updated?.status ?? '',returnedMessagesLen:Array.isArray(updated?.messages)?updated.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       setTask(updated)
       setDraft('')
       setComposerFsOpen(false)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Không gửi được tin nhắn')
+      setErr(getApiErrorMessage(e, 'Không gửi được tin nhắn'))
     } finally {
       setSending(false)
+    }
+  }
+
+  const stopGeneration = async () => {
+    if (!task || !workspaceId) return
+    try {
+      const updated = await updateTask(task._id, workspaceId, { status: 'completed' as any })
+      setTask(updated)
+    } catch (e) {
+      setErr(getApiErrorMessage(e, 'Không dừng được'))
     }
   }
 
@@ -415,8 +935,11 @@ export function TaskWorkspacePage() {
   }
   if (!task) {
     return (
-      <div className="flex flex-1 items-center justify-center p-12 text-[var(--color-cf-on-surface-variant,#434656)]">
-        Đang tải công việc…
+      <div className="flex flex-1 items-center justify-center p-12 bg-white/50 backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-600" />
+          <p className="text-sm font-medium text-slate-500">Đang chuẩn bị không gian làm việc…</p>
+        </div>
       </div>
     )
   }
@@ -431,6 +954,32 @@ export function TaskWorkspacePage() {
           onClick={() => setPanelOpen(false)}
         />
       )}
+      {deleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-slate-900/[0.06]">
+            <h3 className="text-base font-semibold text-slate-800">Xóa task này?</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              Hành động này không thể hoàn tác. Toàn bộ hội thoại và kết quả trong task sẽ bị xóa.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmOpen(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteTask()}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                Xóa task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Khu chat */}
       <section
@@ -441,22 +990,15 @@ export function TaskWorkspacePage() {
       >
         <header className="flex h-[4.75rem] shrink-0 items-center justify-between gap-3 border-b border-slate-100/90 bg-[color-mix(in_srgb,var(--color-cf-surface-container-lowest)_92%,transparent)] px-4 backdrop-blur-md sm:px-8">
           <div className="min-w-0 flex flex-col gap-1">
-            <h1 className="truncate text-xl font-bold leading-tight tracking-tight text-[var(--color-cf-on-surface,#191c1d)] sm:text-2xl">
+            <h1 className="truncate text-xl font-bold leading-tight tracking-tight text-slate-800 sm:text-2xl">
               {task.title}
             </h1>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--color-cf-on-surface-variant,#434656)] sm:text-sm">
-              <Sparkles
-                className="h-4 w-4 shrink-0 text-[var(--color-cf-secondary,#4459a8)]"
-                aria-hidden
-                strokeWidth={2}
-              />
-              <span className="truncate">{agentName || 'Agent'}</span>
-              <span className="text-slate-300">·</span>
+            <div className="flex items-center gap-2">
               {statusBadge && (
-                <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[var(--color-cf-secondary,#4459a8)]">
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-slate-500 sm:text-sm">
                   <span
                     className={[
-                      'h-2 w-2 rounded-full',
+                      'h-2 w-2 rounded-full shadow-[0_0_8px] shadow-current',
                       statusBadge.dot,
                     ].join(' ')}
                     aria-hidden
@@ -467,31 +1009,35 @@ export function TaskWorkspacePage() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            <Link
-              to={`${base}/tasks/new`}
-              className="hidden items-center gap-2 rounded-full bg-[var(--color-cf-surface-container-highest,#e1e3e4)] px-3 py-2 text-xs font-semibold text-[var(--color-cf-on-surface,#191c1d)] transition-colors hover:bg-[var(--color-cf-outline-variant,#c3c5d9)]/40 lg:inline-flex lg:px-4 lg:text-sm lg:font-medium"
-            >
-              <Bolt
-                className="h-[1.125rem] w-[1.125rem] shrink-0 text-[var(--color-cf-primary,#003ec7)]"
-                aria-hidden
-                strokeWidth={2}
-              />
-              Công việc mới
-            </Link>
-            <button
-              type="button"
-              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--color-cf-surface-container-highest,#e1e3e4)] px-4 py-2.5 text-sm font-medium text-[var(--color-cf-on-surface,#191c1d)] transition-colors hover:bg-[var(--color-cf-outline-variant,#c3c5d9)]/40"
-              title="Tự động hoá công việc"
-              onClick={() => setPanelOpen(true)}
-              aria-expanded={panelOpen}
-            >
-              <Zap
-                className="size-[1.125rem] shrink-0 text-[var(--color-cf-primary,#003ec7)] transition-transform group-hover:scale-105"
-                aria-hidden
-                strokeWidth={2}
-              />
-              Tự động hoá
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTaskMenuOpen((v) => !v)}
+                className="rounded-full flex h-9 w-9 items-center justify-center text-[var(--color-cf-on-surface-variant,#434656)] transition-colors hover:bg-[var(--color-cf-surface-container-high,#e7e8e9)] sm:h-10 sm:w-10"
+                title="Tùy chọn task"
+                aria-expanded={taskMenuOpen}
+              >
+                <MoreHorizontal className="h-[1.375rem] w-[1.375rem]" aria-hidden strokeWidth={2} />
+              </button>
+              {taskMenuOpen && (
+                <div className="absolute right-0 top-[calc(100%+0.4rem)] z-30 min-w-[10rem] overflow-hidden rounded-xl border border-slate-200 bg-white py-1.5 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => void handleRenameTask()}
+                    className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    Chỉnh sửa tên task
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteTask()}
+                    className="block w-full px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50"
+                  >
+                    Xóa task
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setPanelOpen((o) => !o)}
@@ -509,20 +1055,32 @@ export function TaskWorkspacePage() {
           </div>
         </header>
 
-        <div className="scrollbar-thin flex-1 space-y-8 overflow-y-auto p-4 sm:p-8">
+        <div className="scrollbar-thin flex-1 overflow-y-auto px-4 py-8 sm:px-8">
           {chatMessages.length === 0 ? (
-            <div className="flex w-full items-center justify-center py-10">
-              <p className="text-sm italic text-slate-500">
-                Chưa có nội dung hội thoại.
-              </p>
+            <div className="flex h-full w-full flex-col items-center justify-center text-center">
+              <div className="mb-10 flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                <div className="relative">
+                  <div className="absolute inset-0 animate-ping rounded-full bg-blue-400/20 duration-[2000ms]" />
+                  <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-50 to-indigo-50 shadow-xl ring-1 ring-blue-100/50">
+                    <Bot className="h-10 w-10 text-blue-600" strokeWidth={1.5} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-bold tracking-tight text-slate-800">Xin chào!</h2>
+                  <p className="text-2xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-500">
+                    Tôi có thể giúp gì cho bạn hôm nay?
+                  </p>
+                </div>
+              </div>
             </div>
           ) : (
-            chatMessages.map((msg, idx) =>
+            <div className="mx-auto max-w-4xl space-y-8 pb-10">
+              {chatMessages.map((msg, idx) =>
               msg.role === 'user' ? (
                 <div key={idx} className="flex w-full justify-end">
-                  <div className="flex max-w-[85%] justify-end sm:max-w-3xl">
-                    <div className="rounded-2xl bg-white px-5 py-3.5 sm:px-6 sm:py-4 shadow-[0_10px_30px_rgba(16,24,40,0.04)]">
-                      <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
+                  <div className="flex max-w-[85%] justify-end sm:max-w-2xl">
+                    <div className="rounded-2xl rounded-tr-sm bg-white px-5 py-3.5 shadow-[0_4px_15px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.03)] ring-1 ring-slate-100/80">
+                      <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-700">
                         {msg.content}
                       </p>
                     </div>
@@ -540,50 +1098,85 @@ export function TaskWorkspacePage() {
                       </span>
                     </div>
                     <div className="pl-9 text-slate-800">
-                      <AgentMessageContent content={msg.content} />
+                      <AgentMessageContent
+                        content={msg.content}
+                        liveThought={
+                          task?.status === 'in_progress' && idx === lastAssistantIndex
+                            ? leaderLiveThought
+                            : null
+                        }
+                        steps={msg.steps}
+                      />
                     </div>
                   </div>
                 </div>
-              ),
-            )
-          )}
-
-          {(task.status === 'scheduled' || task.status === 'in_progress') && (
-            <div className="mt-2 flex w-full justify-start">
-              <div className="flex max-w-[85%] gap-3 sm:max-w-3xl md:gap-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-100 bg-indigo-50/80 text-indigo-600 shadow-sm sm:h-10 sm:w-10">
-                  <Bot className="h-[18px] w-[18px] sm:h-[20px] sm:w-[20px]" strokeWidth={2} aria-hidden />
-                </div>
-                <div className="rounded-[1.5rem] rounded-tl-[0.25rem] border border-slate-100 bg-white px-5 py-3.5 shadow-sm sm:px-6 sm:py-4">
-                  <div className="flex items-center gap-1.5 px-1 py-1">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.2s]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0.4s]" />
-                  </div>
+              )
+            )}            
+            {task?.draft_payload && task.status === 'waiting_human_input' && (
+              <div className="flex w-full justify-start mt-4">
+                <div className="flex w-full max-w-[85%] flex-col gap-2 sm:max-w-4xl pl-9">
+                  <ActionCards 
+                    draftPayload={task.draft_payload} 
+                    taskId={task._id} 
+                    onActionComplete={() => {
+                      void (async () => {
+                        try {
+                          const t = await fetchTask(taskId, workspaceId)
+                          setTask((prev) => mergeTaskMessagesPreferLocal(prev, t))
+                        } catch (e) {
+                          console.error('Lỗi khi tải lại task:', e)
+                        }
+                      })()
+                    }}
+                  />
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="h-6 shrink-0" aria-hidden />
-        </div>
+            {(task.status === 'scheduled' || task.status === 'in_progress' || task.status === 'pending') && (() => {
+              // Only show thinking indicator if no assistant message is currently streaming
+              const lastMsg = chatMessages[chatMessages.length - 1]
+              const hasStreamingAssistant = lastMsg?.role === 'assistant' && (lastMsg.content ?? '').length > 0
+              if (hasStreamingAssistant) return null
+              return (
+                <div className="mt-6 flex w-full justify-start">
+                  <div className="flex w-full max-w-[85%] flex-col gap-2 sm:max-w-4xl">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+                        <Bot className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </div>
+                      <span className="text-sm font-bold text-slate-700">
+                        {agentName.trim() || 'Trợ lý AI'}
+                      </span>
+                    </div>
+                    <div className="pl-9">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-4 py-2 ring-1 ring-slate-100">
+                        <Sparkles className="h-3.5 w-3.5 animate-pulse text-blue-500" strokeWidth={2} />
+                        <span className="text-sm font-medium text-slate-500">
+                          <span className="inline-block animate-pulse">Đang suy nghĩ</span>
+                          <span className="inline-flex w-6 overflow-hidden text-left">
+                            <span className="animate-[ellipsis_1.4s_steps(4,end)_infinite]">...</span>
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        )}
+        <div className="h-6 shrink-0" aria-hidden />
+      </div>
 
-        <div className="shrink-0 px-4 pb-6 pt-2 sm:px-8 sm:pb-8 sm:pt-4">
+        <div className="shrink-0 px-4 pb-0 pt-2 sm:px-8 sm:pb-3">
           <div className="mx-auto flex w-full max-w-4xl flex-col items-center">
-            <div className="relative flex w-full items-end gap-2 rounded-2xl bg-[#161B22] p-2 shadow-[0_10px_40px_rgba(0,0,0,0.1)] ring-1 ring-white/10 transition-all focus-within:ring-2 focus-within:ring-blue-500/50">
-              <button
-                type="button"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
-                title="Đính kèm"
-              >
-                <Paperclip className="h-[18px] w-[18px]" aria-hidden strokeWidth={2} />
-              </button>
-              
+            <div className="group relative flex w-full flex-col rounded-[2rem] bg-white p-3 shadow-[0_20px_50px_rgba(0,0,0,0.04)] ring-1 ring-slate-200/60 transition-all duration-300 focus-within:ring-blue-400/30 focus-within:shadow-[0_25px_60px_rgba(0,0,0,0.08)]">
               <textarea
                 ref={composerTaRef}
                 rows={1}
-                className="min-h-[40px] max-h-[220px] w-full resize-none border-none bg-transparent py-2.5 text-[0.9375rem] leading-relaxed text-slate-200 outline-none ring-0 placeholder:text-slate-500"
-                placeholder={agentName ? `Nhắn tới ${agentName}…` : 'Nhắn tới agent…'}
+                className="w-full resize-none border-none bg-transparent px-4 py-4 text-[16px] leading-relaxed text-slate-800 outline-none ring-0 placeholder:text-slate-400"
+                placeholder="Giao việc cho Agent hoặc bắt đầu trò chuyện…"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -594,29 +1187,199 @@ export function TaskWorkspacePage() {
                 }}
               />
               
-              <div className="flex h-10 shrink-0 items-center gap-1 pr-1">
-                <button
-                  type="button"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
-                  aria-label="Phóng to ô nhập"
-                  title="Phóng to"
-                  onClick={() => setComposerFsOpen(true)}
-                >
-                  <Maximize2 className="h-4 w-4" aria-hidden strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-blue-400 transition-colors hover:bg-blue-500/20 hover:text-blue-300 disabled:opacity-40"
-                  disabled={!draft.trim() || sending}
-                  onClick={() => void submitUpdate()}
-                  title="Gửi"
-                >
-                  <Send className="h-4 w-4 shrink-0" aria-hidden strokeWidth={2} />
-                </button>
+              <div className="flex items-center justify-between px-2 pb-1 pt-2">
+                <div className="flex items-center gap-2">
+                  {/* File Upload Button */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    onChange={(e) => {
+                      console.log('File selected:', e.target.files?.[0])
+                      // Implement file upload logic here
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    title="Tải file lên"
+                  >
+                    <Paperclip className="h-[20px] w-[20px]" strokeWidth={1.5} />
+                  </button>
+
+                  {/* Schedule Shortcut Button */}
+                  <div className="relative">
+                    <button
+                      ref={scheduleBtnRef}
+                      type="button"
+                      onClick={() => setSchedulePopupOpen((v) => !v)}
+                      className={[
+                        'flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-100',
+                        scheduleOn ? 'text-blue-600' : 'text-slate-400',
+                        schedulePopupOpen && 'bg-slate-100'
+                      ].join(' ')}
+                      title="Đặt lịch chạy"
+                    >
+                      <Timer className="h-[20px] w-[20px]" strokeWidth={1.5} />
+                    </button>
+
+                    {schedulePopupOpen && (
+                      <div
+                        ref={schedulePopupRef}
+                        className="absolute bottom-full left-0 mb-4 w-[320px] origin-bottom-left overflow-hidden rounded-3xl border border-slate-200/60 bg-white p-5 shadow-2xl animate-in fade-in zoom-in duration-200 z-50"
+                      >
+                        <div className="mb-4 flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-slate-800">Đặt lịch tự động</h4>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={scheduleOn}
+                            onClick={() => setScheduleOn((v) => !v)}
+                            className={[
+                              'relative flex h-5 w-9 cursor-pointer items-center rounded-full transition-colors duration-200',
+                              scheduleOn ? 'bg-blue-600' : 'bg-slate-200',
+                            ].join(' ')}
+                          >
+                            <span
+                              className={[
+                                'inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200',
+                                scheduleOn ? 'translate-x-5' : 'translate-x-1',
+                              ].join(' ')}
+                            />
+                          </button>
+                        </div>
+                        
+                        <div className={['space-y-4', !scheduleOn && 'opacity-40 pointer-events-none'].join(' ')}>
+                          <div className="relative">
+                            <select
+                              value={cycle}
+                              onChange={(e) => setCycle(e.target.value)}
+                              className="w-full appearance-none rounded-xl bg-slate-100 py-2.5 pl-4 pr-10 text-xs font-bold text-slate-700 outline-none"
+                            >
+                              <option value="daily">Hàng ngày</option>
+                              <option value="weekly">Hàng tuần</option>
+                              <option value="monthly">Hàng tháng</option>
+                            </select>
+                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="time"
+                              value={time}
+                              onChange={(e) => setTime(e.target.value)}
+                              className="flex-1 rounded-xl bg-slate-100 py-2.5 px-4 text-xs font-bold text-slate-700 outline-none"
+                            />
+                            <Clock3 className="h-4 w-4 text-slate-400" />
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSchedulePopupOpen(false)
+                              setPanelOpen(true)
+                            }}
+                            className="w-full rounded-xl py-2 text-[11px] font-bold text-blue-600 transition-colors hover:bg-blue-50"
+                          >
+                            Xem chi tiết cấu hình →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Agent Picker Pill */}
+                  <div className="relative">
+                    <button
+                      ref={agentPickerRef}
+                      type="button"
+                      onClick={() => setAgentPickerOpen((v) => !v)}
+                      className="flex h-10 items-center gap-2 rounded-full border border-slate-100 bg-slate-50 px-4 py-1.5 transition-all hover:bg-slate-100 active:scale-95"
+                      title="Chọn Agent"
+                    >
+                      <Sparkles className="h-4 w-4 text-blue-600" strokeWidth={1.5} />
+                      <span className="max-w-[150px] truncate text-[13px] font-bold text-slate-700">
+                        {selectedAgent ? selectedAgent.name : 'Chọn Agent'}
+                      </span>
+                      <ChevronDown className={['h-3 w-3 text-slate-400 transition-transform', agentPickerOpen && 'rotate-180'].join(' ')} />
+                    </button>
+
+                    {agentPickerOpen && (
+                      <div
+                        ref={agentPopoverRef}
+                        className="absolute bottom-full left-0 mb-4 w-64 origin-bottom-left overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-1 shadow-2xl animate-in fade-in zoom-in duration-200 z-50"
+                      >
+                        <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Đổi Agent làm việc</div>
+                        <div className="max-h-64 overflow-y-auto">
+                          {agents.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-slate-400 italic">Không có agent nào</div>
+                          ) : (
+                            agents.map((a) => (
+                              <button
+                                key={a._id}
+                                type="button"
+                                onClick={() => void handleSelectAgent(a)}
+                                className={[
+                                  'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
+                                  selectedAgent?._id === a._id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                                ].join(' ')}
+                              >
+                                <div className={['flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold', selectedAgent?._id === a._id ? 'bg-blue-100' : 'bg-slate-100'].join(' ')}>
+                                  {getInitials(a.name)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-[13px] font-bold">{a.name}</div>
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Conditional Maximize Button */}
+                  {draft.length > 50 && (
+                    <button
+                      type="button"
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                      aria-label="Phóng to ô nhập"
+                      title="Phóng to"
+                      onClick={() => setComposerFsOpen(true)}
+                    >
+                      <Maximize2 className="h-4.5 w-4.5" strokeWidth={1.5} />
+                    </button>
+                  )}
+
+                  {(task?.status === 'in_progress' || task?.status === 'scheduled' || task?.status === 'pending') && !draft.trim() ? (
+                    <button
+                      type="button"
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-200 transition-all hover:bg-red-600 active:scale-95 animate-pulse"
+                      onClick={() => void stopGeneration()}
+                      title="Dừng tạo nội dung"
+                      id="stop-generation-btn"
+                    >
+                      <Square className="h-4 w-4 shrink-0 fill-current" strokeWidth={0} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 active:scale-95 disabled:bg-slate-100 disabled:text-slate-300 disabled:shadow-none"
+                      disabled={!draft.trim() || sending}
+                      onClick={() => void submitUpdate()}
+                      title="Gửi"
+                    >
+                      <Send className="h-5 w-5 shrink-0" strokeWidth={1.5} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="mt-3 text-center text-[0.7rem] font-medium text-[var(--color-cf-on-surface-variant,#434656)]">
-              AI có thể sai sót · Hãy kiểm tra thông tin quan trọng.
+            <div className="mt-4 text-center text-[0.7rem] font-medium text-slate-400">
+              Nhấn <kbd className="rounded bg-slate-100 px-1 py-0.5">Enter</kbd> để gửi · <kbd className="rounded bg-slate-100 px-1 py-0.5">Shift+Enter</kbd> để xuống dòng.
             </div>
           </div>
         </div>
@@ -624,50 +1387,47 @@ export function TaskWorkspacePage() {
 
       {composerFsOpen && (
         <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#0d1117]/80 p-4 backdrop-blur-md sm:p-8 md:p-12 pl-[calc(env(safe-area-inset-left)+1rem)] pr-[calc(env(safe-area-inset-right)+1rem)]"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm sm:p-8 md:p-12"
           role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget) setComposerFsOpen(false)
           }}
         >
-          <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#161B22] shadow-2xl">
-            <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-6 py-4">
-              <div className="text-base font-medium text-slate-200">
-                Soạn thảo toàn màn hình
+          <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-[2.5rem] bg-white shadow-2xl ring-1 ring-slate-200">
+            <div className="flex shrink-0 items-center justify-between px-8 py-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                  <Maximize2 className="h-5 w-5" strokeWidth={1.5} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Soạn thảo toàn màn hình</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setComposerFsOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-800"
                 aria-label="Đóng"
               >
-                <X className="h-5 w-5" aria-hidden strokeWidth={2} />
+                <X className="h-6 w-6" strokeWidth={1.5} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto bg-transparent p-6 sm:p-8">
+            <div className="flex-1 overflow-y-auto px-8 py-2">
               <textarea
                 ref={modalComposerTaRef}
-                className="h-full w-full resize-none border-none bg-transparent text-lg leading-relaxed text-slate-200 outline-none placeholder:text-slate-600 focus:ring-0"
-                placeholder={agentName ? `Nhắn tới ${agentName}…` : 'Soạn nội dung…'}
+                className="h-full w-full resize-none border-none bg-transparent text-[18px] leading-relaxed text-slate-800 outline-none placeholder:text-slate-300 focus:ring-0"
+                placeholder={agentName ? `Nhắn tới ${agentName}…` : 'Nhập nội dung chi tiết tại đây…'}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !sending) {
-                    e.preventDefault()
-                    void submitUpdate()
-                  }
-                }}
               />
             </div>
-            <div className="flex shrink-0 items-center justify-between border-t border-white/5 px-6 py-4">
-              <span className="text-sm text-slate-500">
+            <div className="flex shrink-0 items-center justify-between border-t border-slate-100 px-8 py-6">
+              <span className="text-sm font-medium text-slate-400">
                 {draft.length} ký tự
               </span>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 <button
                   type="button"
                   onClick={() => setComposerFsOpen(false)}
-                  className="rounded-xl px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
+                  className="rounded-xl px-6 py-2.5 text-sm font-bold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800"
                 >
                   Đóng
                 </button>
@@ -675,9 +1435,9 @@ export function TaskWorkspacePage() {
                   type="button"
                   onClick={() => void submitUpdate()}
                   disabled={!draft.trim() || sending}
-                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-2xl bg-blue-600 px-8 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
                 >
-                  <Send className="h-4 w-4" aria-hidden strokeWidth={2} />
+                  <Send className="h-4 w-4" strokeWidth={1.5} />
                   Gửi tin nhắn
                 </button>
               </div>
@@ -690,7 +1450,19 @@ export function TaskWorkspacePage() {
         id="task-automation-panel"
         className="flex min-h-0 min-w-0 transition-[flex]"
       >
-        <TaskAutomationPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+        <TaskAutomationPanel
+          workspaceId={workspaceId}
+          open={panelOpen}
+          onClose={() => setPanelOpen(false)}
+          scheduleOn={scheduleOn}
+          setScheduleOn={setScheduleOn}
+          cycle={cycle}
+          setCycle={setCycle}
+          time={time}
+          setTime={setTime}
+          selectedMonthDays={selectedMonthDays}
+          setSelectedMonthDays={setSelectedMonthDays}
+        />
       </div>
     </div>
   )

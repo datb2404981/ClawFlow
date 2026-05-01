@@ -66,6 +66,17 @@ def content_router(state: ClawFlowState):
     return "reviewer"
 
 
+def integration_router(state: ClawFlowState):
+    """Router dành cho Integration Agent.
+    Nếu gọi tool, sang tools.
+    Nếu trả về kết quả chữ, trả về leader_agent để đúc kết.
+    """
+    last = state["messages"][-1]
+    if getattr(last, "tool_calls", None):
+        return "tools"
+    return "leader_agent"
+
+
 def tools_router(state: ClawFlowState):
     """Tool của agent nào chạy xong → trả về đúng agent đó."""
     # CHỐNG LOOP (Recursion Limit)
@@ -74,9 +85,27 @@ def tools_router(state: ClawFlowState):
         return "reviewer"
 
     last = state["messages"][-1]
+    # Tìm xem AI nào đã phát ra tool call này (ở trước ToolMessage)
+    # Lùi lại để tìm AIMessage gần nhất
+    source_agent = "leader_agent"
+    for m in reversed(state["messages"]):
+        if getattr(m, "type", "") == "ai" and getattr(m, "tool_calls", None):
+            source_agent = msg_attr(m, "additional_kwargs", {}).get("source_agent", "leader_agent")
+            break
+
     tool_name = msg_attr(last, "name", "")
+    
+    # Nếu Leader ủy quyền, đẩy ngay cho Integration Agent
+    if tool_name == "delegate_to_integration":
+        return "integration_agent"
+    
+    # Trả về đúng chủ cũ
+    if source_agent == "integration_agent":
+        return "integration_agent"
+    
     if tool_name in CONTENT_TOOL_NAMES:
         return "content_agent"
+    
     return "leader_agent"
 
 

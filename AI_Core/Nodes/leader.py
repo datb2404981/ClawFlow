@@ -4,8 +4,12 @@ from __future__ import annotations
 import re
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 
-from Agents.leader_agent import leader_agent, SYSTEM_PROMPT_LEADER
+from Agents.leader_agent import leader_model, SYSTEM_PROMPT_LEADER
+from Tools.tool_browser import tool_browsers
+from Tools.tool_delegate import delegate_to_integration
+
 from Utils.intent import (
     detect_about_user_query,
     detect_recall_name_question,
@@ -20,9 +24,92 @@ from Utils.messages import (
     last_human_text,
     last_human_text_excluding_internal,
     msg_attr,
-    sanitize_assistant_text,
 )
+from Utils.text_sanitize import sanitize_assistant_text_keep_thought
 from state import ClawFlowState
+
+
+def _clean_integration_markers(text: str) -> str:
+    """Loại bỏ markers nội bộ 【DỮ LIỆU THẬT TỪ API】 khỏi output hiển thị cho user."""
+    t = text or ""
+    t = re.sub(r"【DỮ LIỆU THẬT TỪ API[^】]*】\n?", "", t)
+    t = re.sub(r"【/DỮ LIỆU THẬT】\n?", "", t)
+    return t.strip()
+
+
+def _strip_fake_tool_calls(text: str) -> str:
+    """Loại bỏ tool call giả mà Qwen viết bằng text thay vì dùng function calling.
+    Ví dụ: 'delegate_to_integration {"task_description": "..."}'
+    """
+    t = text or ""
+    # Xóa ACTION: blocks
+    t = re.sub(r'(?:^|\n)\s*ACTION\s*:\s*\n?', '\n', t, flags=re.IGNORECASE)
+    # Xóa THOUGHT: blocks
+    t = re.sub(r'(?:^|\n)\s*THOUGHT\s*:.*', '', t, flags=re.IGNORECASE)
+    # Xóa USER: blocks (echo)
+    t = re.sub(r'(?:^|\n)\s*USER\s*:.*', '', t, flags=re.IGNORECASE)
+    # Xóa các dòng chứa tool call giả
+    t = re.sub(
+        r'(?:^|\n)\s*(?:delegate_to_integration|Delegate_To_Content_Agent|read_gmail_tool)\s*\{[^}]*\}\s*',
+        '\n', t, flags=re.IGNORECASE
+    )
+    # Xóa các khối 【TÁC PHẨM】, 【THÔNG BÁO】, 【NHIỆM VỤ...】, 【THÔNG TIN ĐÃ TRÍCH DẪN】
+    t = re.sub(r'【[^】]{1,50}】\s*\n?', '', t)
+    # Xóa dòng trống liên tiếp
+    t = re.sub(r'\n{3,}', '\n\n', t)
+    return t.strip()
+
+
+def _rescue_text_tool_call(response) -> bool:
+    """Khi Qwen viết tool call bằng TEXT thay vì function calling,
+    parse nó và gắn thành tool_call thật vào response.
+
+    Trả về True nếu đã rescue thành công.
+    """
+    import json as _json
+    import uuid as _uuid
+
+    content = str(getattr(response, "content", ""))
+    if not content:
+        return False
+
+    # Đã có tool_calls thật → không cần rescue
+    if getattr(response, "tool_calls", None):
+        return False
+
+    # Pattern: delegate_to_integration {"key": "value"}
+    # hoặc: ACTION:\n delegate_to_integration {"key": "value"}
+    pattern = re.search(
+        r'delegate_to_integration\s*(\{[^}]+\})',
+        content, flags=re.IGNORECASE
+    )
+    if not pattern:
+        return False
+
+    # Parse JSON args
+    try:
+        raw_args = _json.loads(pattern.group(1))
+    except Exception:
+        raw_args = {}
+
+    # Chuẩn hóa args → task_description
+    task_desc = (
+        raw_args.get("task_description")
+        or raw_args.get("action")
+        or raw_args.get("query")
+        or "Đọc email mới nhất"
+    )
+
+    call_id = f"call_{_uuid.uuid4().hex[:12]}"
+    response.tool_calls = [{
+        "id": call_id,
+        "name": "delegate_to_integration",
+        "args": {"task_description": task_desc},
+    }]
+    response.content = ""
+    print(f"[leader] RESCUE: text-based tool call → real tool_call "
+          f"(task_description='{task_desc[:60]}')")
+    return True
 
 
 HISTORY_WINDOW = 8
@@ -297,17 +384,28 @@ def _unknown_fact_answer(user_text: str, haystack: str) -> str | None:
     )
 
 
-async def leader_agent_node(state: ClawFlowState):
+async def leader_agent_node(state: ClawFlowState, config: RunnableConfig):
     """Leader đọc core_profile & thread_rules từ State (không còn phải parse text)."""
     total = len(state.get("messages", []))
     valid_history = _trim_history(state["messages"])
     thread_rules = state.get("thread_rules") or ""
     core_profile = state.get("core_profile") or ""
 
+    integrations = config.get("configurable", {}).get("integrations", {})
+
+    # Debug: kiểm tra xem kết quả Integration có trong history không
+    has_integration_result = any(
+        "【DỮ LIỆU THẬT TỪ API" in str(getattr(m, "content", ""))
+        for m in valid_history
+    )
+
     print(
         f"[leader] total_msgs={total} | valid_history={len(valid_history)} | "
         f"profile={'Y' if core_profile else 'N'} "
-        f"rules={'Y' if thread_rules else 'N'}"
+        f"rules={'Y' if thread_rules else 'N'} | "
+        f"gmail_connected={'Y' if integrations.get('gmail', {}).get('connected') else 'N'} "
+        f"has_token={'Y' if integrations.get('gmail', {}).get('access_token') else 'N'} | "
+        f"has_integration_result={'Y' if has_integration_result else 'N'}"
     )
 
     user_text = _user_question_for_fast_path(state)
@@ -360,10 +458,107 @@ async def leader_agent_node(state: ClawFlowState):
             prompt += f"\n• Luật riêng phòng này: {thread_rules}"
 
     messages = [SystemMessage(content=prompt)] + valid_history
+
+    # ━━━ BYPASS: Có kết quả Integration → KHÔNG gọi LLM, trả thẳng cho user ━━━
+    # Qwen 7B quá yếu: bịa nội dung, viết tiếng Trung, không tuân thủ prompt.
+    # Giải pháp: bypass hoàn toàn, dùng dữ liệu thật từ API trả thẳng.
+    # CHỈ BYPASS 1 LẦN DUY NHẤT: dùng flag để tránh lặp khi Reviewer kick back.
+    already_bypassed = state.get("has_bypassed_integration", False)
+    if has_integration_result and not already_bypassed:
+        print("[leader] BYPASS LLM: trả thẳng integration result cho user (1 lần duy nhất)")
+        integration_data = ""
+        for m in reversed(valid_history):
+            content = str(getattr(m, "content", ""))
+            if "【DỮ LIỆU THẬT TỪ API" in content:
+                integration_data = content
+                break
+
+        # Dọn dẹp markers nội bộ
+        clean = _clean_integration_markers(integration_data)
+        clean = _strip_fake_tool_calls(clean)
+        clean = clean.strip()
+
+        if not clean:
+            clean = "Không nhận được dữ liệu từ API. Vui lòng thử lại."
+
+        bypass_msg = AIMessage(
+            content=clean,
+            additional_kwargs={"source_agent": "leader_agent"},
+        )
+        return {"messages": [bypass_msg], "has_bypassed_integration": True}
+
+    active_tools = list(tool_browsers)
+
+    # CHỈ gắn delegate khi chưa có integration result (luôn true ở đây do bypass ở trên)
+    active_tools.append(delegate_to_integration)
+
+    leader_agent = leader_model.bind_tools(active_tools)
     response = await leader_agent.ainvoke(messages)
 
+    # ━━━ RESCUE: Qwen viết tool call bằng text → chuyển thành tool_call thật ━━━
+    _rescue_text_tool_call(response)
+
+    # ━━━ FAILSAFE: User yêu cầu đọc email nhưng Qwen không gọi tool → FORCE ━━━
+    if not response.tool_calls:
+        # Lấy câu hỏi gốc của user
+        user_q = ""
+        for m in reversed(valid_history):
+            if isinstance(m, HumanMessage):
+                user_q = str(getattr(m, "content", "")).lower()
+                break
+        
+        # Kiểm tra xem user có yêu cầu liên quan email/integration không
+        email_keywords = ["mail", "email", "gmail", "thư", "hộp thư", "inbox", "đọc mail", "gửi mail"]
+        integrations = config.get("configurable", {}).get("integrations", {})
+        gmail_connected = integrations.get("gmail", {}).get("connected", False)
+        
+        if gmail_connected and any(kw in user_q for kw in email_keywords):
+            import uuid as _uuid
+            call_id = f"call_{_uuid.uuid4().hex[:12]}"
+            response.tool_calls = [{
+                "id": call_id,
+                "name": "delegate_to_integration",
+                "args": {"task_description": "Đọc email mới nhất trong hộp thư"},
+            }]
+            response.content = ""
+            print(f"[leader] FAILSAFE: user hỏi email nhưng Qwen không gọi tool → force delegate")
+
+    # ━━━ QUAN TRỌNG: Khi có tool_call → XÓA text content ━━━
+    # Qwen luôn viết text kèm tool_call ("sẽ kiểm tra... đã kiểm tra... không phát hiện")
+    # Đây là text BỊA TRƯỚC khi tool chạy → phải xóa để tránh hiển thị cho user.
+    if response.tool_calls:
+        has_delegate = any(
+            tc.get("name") == "delegate_to_integration" for tc in response.tool_calls
+        )
+        if has_delegate:
+            print(f"[leader] tool_call=delegate_to_integration → XÓA text content "
+                f"({len(response.content)} chars bị bỏ)")
+            response.content = ""
+        else:
+            # Tool khác (web_search, etc): giữ thought nếu có, xóa phần còn lại
+            if isinstance(response.content, str) and "<thought" in response.content.lower():
+                # Giữ thought block
+                import re as _re
+                thought_match = _re.search(
+                    r"(<thought[^>]*>.*?</thought>)", response.content,
+                    flags=_re.DOTALL | _re.IGNORECASE
+                )
+                response.content = thought_match.group(1) if thought_match else ""
+            else:
+                response.content = ""
+
+    # Bổ sung: Lấy reasoning từ metadata nếu model hỗ trợ (Gemini/DeepSeek native)
+    reasoning = response.additional_kwargs.get("reasoning_content") or response.additional_kwargs.get("thought")
+    if reasoning and isinstance(reasoning, str) and isinstance(response.content, str):
+        if "<thought" not in response.content.lower() and "<thought" not in reasoning.lower():
+            response.content = f"<thought>\n{reasoning}\n</thought>\n\n{response.content}"
+
     if isinstance(response.content, str):
-        response.content = sanitize_assistant_text(response.content)
+        response.content = sanitize_assistant_text_keep_thought(response.content)
+        # Loại bỏ markers nội bộ khỏi output hiển thị cho user
+        response.content = _clean_integration_markers(response.content)
+        # Loại bỏ tool call giả do Qwen viết bằng text
+        response.content = _strip_fake_tool_calls(response.content)
 
     if not response.content.strip() and not response.tool_calls:
         response.content = (

@@ -222,7 +222,7 @@ export class TasksService {
       created_by: uid,
       title: dto.title,
       description: dto.description,
-      status: dto.status ?? 'scheduled',
+      status: dto.status ?? (scheduleEnabled ? 'scheduled' : 'pending'),
       thread_id: dto.thread_id,
       messages: initialMessages,
       draft_payload: null,
@@ -427,6 +427,10 @@ export class TasksService {
       // 5. Tổng hợp thành compiled_prompt
       const systemPrompt = agent.system_prompt ? `### CHỈ THỊ CỦA AGENT:\n${agent.system_prompt}\n\n` : '';
       const customSkills = agent.custom_skills ? `### KỸ NĂNG TÙY CHỈNH:\n${agent.custom_skills}\n\n` : '';
+      
+      const integrationsGate = await this.usersService.getExecutorIntegrationsGate(creatorHex);
+      const systemGuard = `### TÌNH TRẠNG KẾT NỐI ỨNG DỤNG (SYSTEM GUARD):\nNgười dùng có các trạng thái kết nối như sau. CHỈ sử dụng tool (hoặc lập kế hoạch action) cho những ứng dụng "ĐÃ liên kết". Nếu CHƯA liên kết, hãy từ chối yêu cầu và nhắc người dùng vào Cài đặt để kết nối:\n${integrationsGate.providerStatusString}\n\nLƯU Ý TỐI CAO: Bất kể bạn đang đóng vai trò gì (kể cả Trợ lý Tuyển sinh), nếu người dùng yêu cầu thao tác với ứng dụng bên thứ 3 (đọc email, gửi email, xem lịch...), bạn BẮT BUỘC PHẢI gọi công cụ delegate_to_integration ngay lập tức với mô tả chi tiết yêu cầu. TUYỆT ĐỐI KHÔNG ĐƯỢC yêu cầu người dùng tự copy/paste nội dung.\n\n`;
+
       const taskModeLine = isDraftMode ? '### TASK MODE: DRAFT\n\n' : '';
       const taskReq = `${taskModeLine}### NHIỆM VỤ CỦA BẠN (TỪ NGƯỜI DÙNG):\n${lastUserMessage || 'Hãy xem tài liệu và xử lý yêu cầu.'}`;
       const currentMessages =
@@ -455,6 +459,7 @@ export class TasksService {
       const compiledPrompt = [
         systemPrompt,
         customSkills,
+        systemGuard,
         skillsContext,
         memoryContext,
         ragPreamble,
@@ -471,21 +476,64 @@ export class TasksService {
       const sessionId =
         String(taskDoc.thread_id ?? '').trim() || taskIdHex;
       // Nest inject đúng AiCoreService; strict-eslint đôi khi không suy ra kiểu phương thức.
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- chatWithAiStream → Promise<string>
+      const collectedSteps = new Set<string>();
+      const NODE_STEP_LABELS: Record<string, string> = {
+        leader_agent: 'Đang phân tích yêu cầu...',
+        integration_agent: 'Đang thao tác với ứng dụng...',
+        content_agent: 'Đang soạn thảo nội dung...',
+        reviewer: 'Đang kiểm tra chất lượng...',
+        tools: 'Đang thực thi công cụ...',
+        memory_bootstrap: 'Đang truy xuất bộ nhớ...',
+        memory_writer: 'Đang lưu trữ thông tin...',
+      };
+
       const streamResult: unknown = await this.aiCoreService.chatWithAiStream(
         compiledPrompt,
         creatorHex,
         sessionId,
-        (chunk: string) =>
-          this.tasksGateway.emitTaskStream(workspaceIdStr, taskId, chunk),
+        (event: Record<string, any>) => {
+          if (event.type === 'status') {
+            const node = event.node || '';
+            let label = NODE_STEP_LABELS[node];
+            if (event.status === 'tool_call' && event.tool) {
+              // Map tên tool nội bộ → nhãn thân thiện cho user
+              const TOOL_FRIENDLY: Record<string, string> = {
+                delegate_to_integration: 'Đang kết nối ứng dụng...',
+                read_gmail_tool: 'Đang đọc email...',
+                web_search_tool: 'Đang tìm kiếm web...',
+                tavily_search: 'Đang tìm kiếm web...',
+              };
+              label = TOOL_FRIENDLY[event.tool] || `Đang thực thi: ${event.tool}`;
+            }
+            if (label) {
+              collectedSteps.add(label);
+            }
+          }
+          // #region agent log
+          if (
+            typeof event?.chunk === 'string' &&
+            /PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(
+              event.chunk,
+            )
+          ) {
+            fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskIdHex}`,hypothesisId:'H3',location:'Backend/src/module/ai-center/service/tasks.service.ts:511',message:'event_forward_to_ws_contains_reviewer_markers',data:{eventType:event?.type ?? '',node:event?.node ?? '',status:event?.status ?? '',chunkPreview:String(event.chunk).slice(0,220)},timestamp:Date.now()})}).catch(()=>{});
+          }
+          // #endregion
+          this.tasksGateway.emitTaskStream(workspaceIdStr, taskId, event);
+        },
+        integrationsGate.connections
       );
       const result =
         typeof streamResult === 'string' ? streamResult : String(streamResult);
+      // #region agent log
+      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-result:${taskIdHex}`,hypothesisId:'H4',location:'Backend/src/module/ai-center/service/tasks.service.ts:519',message:'result_before_db_persist',data:{resultLen:result.length,hasReviewMarkers:/PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(result),resultTail:result.slice(-260)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
       // 8. Cập nhật trạng thái + lịch sử assistant
       const assistantBubble = {
         role: 'assistant' as const,
         content: result,
+        steps: Array.from(collectedSteps),
         createdAt: new Date(),
       };
       const rawMsgs = (taskDoc.messages || []) as Array<{ role?: string }>;
@@ -983,12 +1031,12 @@ export class TasksService {
 
     // Execute connectors (MVP simulated), sau này sẽ thay bằng Gmail/Calendar/Drive/Notion thực.
     const idempotencyKey = String(
-      (actionPlan as any)?.idempotency_key ??
-        (actionPlan as any)?.execution_key ??
+      (actionPlan)?.idempotency_key ??
+        (actionPlan)?.execution_key ??
         `approve:${taskIdHex}`,
     );
 
-    const integrationsEnabled =
+    const integrationsGate =
       await this.usersService.getExecutorIntegrationsGate(
         String(taskDoc.created_by),
       );
@@ -997,7 +1045,7 @@ export class TasksService {
       await this.thirdPartyExecutor.executeActionPlanMvp(
         actionPlan ?? {},
         idempotencyKey,
-        integrationsEnabled,
+        integrationsGate,
       );
 
     const assistantBubble = {
@@ -1050,6 +1098,91 @@ export class TasksService {
 
     const updated = await this.taskModel.findById(taskDoc._id).lean().exec();
     if (!updated) throw new BadRequestException('Không đọc lại được task.');
+    return updated as object;
+  }
+
+  async approveAction(
+    userId: string,
+    taskId: string,
+    body: { actionIndex: number; decision: 'approve' | 'reject'; editedPayload?: any },
+  ): Promise<object> {
+    const tid = toObjectId(taskId);
+    const taskDoc = await this.taskModel.findOne({ _id: tid }).exec();
+    if (!taskDoc) throw new NotFoundException('Không tìm thấy task');
+
+    if (taskDoc.status !== 'waiting_human_input' && taskDoc.status !== 'waiting_execute_approval') {
+      throw new BadRequestException('Task không ở trạng thái chờ duyệt');
+    }
+
+    let actionPlan: any | null = null;
+    if (taskDoc.draft_payload) {
+      try {
+        actionPlan = JSON.parse(String(taskDoc.draft_payload));
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!actionPlan || !Array.isArray(actionPlan.actions) || !actionPlan.actions[body.actionIndex]) {
+      throw new BadRequestException('Không tìm thấy action index');
+    }
+
+    const action = actionPlan.actions[body.actionIndex];
+    if (body.editedPayload) {
+      action.payload = body.editedPayload;
+    }
+
+    let resultMsg = '';
+
+    if (body.decision === 'approve') {
+      const integrationsGate = await this.usersService.getExecutorIntegrationsGate(String(taskDoc.created_by));
+      try {
+        const result = await this.thirdPartyExecutor.executeSingleAction(action, integrationsGate);
+        resultMsg = result.resultText;
+      } catch (err: any) {
+        throw new BadRequestException(`Lỗi thực thi action: ${err.message}`);
+      }
+    } else {
+      resultMsg = `Đã bỏ qua hành động: ${action.label}`;
+    }
+
+    // Ghi log vào messages
+    const workspaceIdStr = this.idHex(taskDoc.workspace_id);
+    const updatedMessages = Array.isArray(taskDoc.messages) ? [...taskDoc.messages] : [];
+    
+    updatedMessages.push({
+      role: 'assistant',
+      content: resultMsg,
+      createdAt: new Date(),
+    });
+
+    // Check if there are any remaining actions that haven't been processed
+    // Simplified logic: assume each call processes one action. If we want to be strict,
+    // we should track completed actions. For now, we just append the success message.
+    // If all actions are done, we could set status = 'completed'. Let's keep it simple.
+
+    await this.taskModel.updateOne(
+      { _id: taskDoc._id },
+      { 
+        $set: { 
+          messages: updatedMessages,
+          // Note: you might want to update draft_payload to mark this action as completed
+          // but ActionCards handles completed state locally. If page reloads, it might show again.
+          // To fix this, we can remove the action or mark it done in draft_payload.
+        } 
+      }
+    );
+
+    // Xóa action khỏi draft_payload để không hiện lại
+    actionPlan.actions[body.actionIndex] = { ...action, completed: true };
+    await this.taskModel.updateOne(
+      { _id: taskDoc._id },
+      { $set: { draft_payload: JSON.stringify(actionPlan) } }
+    );
+
+    this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, taskDoc.status, resultMsg);
+
+    const updated = await this.taskModel.findById(taskDoc._id).lean().exec();
     return updated as object;
   }
 
@@ -1124,6 +1257,9 @@ export class TasksService {
     if (!trimmed) {
       throw new BadRequestException('Nội dung tin nhắn không được để trống.');
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`append-user-message:${String(doc._id)}`,hypothesisId:'H16',location:'Backend/src/module/ai-center/service/tasks.service.ts:1158',message:'append_user_message_before_update',data:{taskId:String(doc._id),status:doc.status,messagesLen:Array.isArray(doc.messages)?doc.messages.length:0,workspaceId:String(doc.workspace_id),textLen:trimmed.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     await this.taskModel.updateOne(
       { _id: doc._id },
       {
@@ -1137,6 +1273,10 @@ export class TasksService {
         },
       },
     );
+    // #region agent log
+    const updatedDocForDebug = await this.taskModel.findById(doc._id).lean().exec();
+    fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`append-user-message:${String(doc._id)}`,hypothesisId:'H16',location:'Backend/src/module/ai-center/service/tasks.service.ts:1174',message:'append_user_message_after_update',data:{taskId:String(updatedDocForDebug?._id ?? ''),status:String(updatedDocForDebug?.status ?? ''),messagesLen:Array.isArray(updatedDocForDebug?.messages)?updatedDocForDebug.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     await this.tasksQueue.add(
       'process_task',
       { taskId: this.idHex(doc._id) },

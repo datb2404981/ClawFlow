@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
-import { Send, Sparkles } from 'lucide-react'
+import { Send, Sparkles, Paperclip, Timer, ChevronDown, Clock3 } from 'lucide-react'
 import { createTask } from '../../api/tasks'
+import { getApiErrorMessage } from '../../api/errors'
 import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
 
 export function TaskNewPage() {
@@ -12,114 +13,294 @@ export function TaskNewPage() {
   const [agentId, setAgentId] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  
+  // Schedule state
+  const [scheduleOn, setScheduleOn] = useState(false)
+  const [cycle, setCycle] = useState('daily')
+  const [time, setTime] = useState('09:00')
+  const [schedulePopupOpen, setSchedulePopupOpen] = useState(false)
+  
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const scheduleBtnRef = useRef<HTMLButtonElement>(null)
 
-  const selectAgent = agentId || agents[0]?._id || ''
-
-  // Tự động giãn dòng textarea
+  const selectedAgentId = agentId || agents[0]?._id || ''
+  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      const scrollHeight = textareaRef.current.scrollHeight
-      textareaRef.current.style.height = Math.min(scrollHeight, 400) + 'px'
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px'
     }
   }, [description])
+
+  // Schedule extra state
+  const [selectedDays, setSelectedDays] = useState<string[]>([])
+  const [selectedMonthDays, setSelectedMonthDays] = useState<number[]>([])
+
+  const toggleDay = (d: string) =>
+    setSelectedDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d])
+  const toggleMonthDay = (d: number) =>
+    setSelectedMonthDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d])
+
+  /** Build a simple cron-like string from UI selections */
+  const buildScheduleCron = () => {
+    const [hh, mm] = time.split(':')
+    if (cycle === 'daily') return `${mm} ${hh} * * *`
+    if (cycle === 'weekly') {
+      const dayMap: Record<string, string> = { T2: '1', T3: '2', T4: '3', T5: '4', T6: '5', T7: '6', CN: '0' }
+      const days = selectedDays.map((d) => dayMap[d] ?? '1').join(',') || '1'
+      return `${mm} ${hh} * * ${days}`
+    }
+    if (cycle === 'monthly') {
+      const days = selectedMonthDays.length > 0 ? selectedMonthDays.join(',') : '1'
+      return `${mm} ${hh} ${days} * *`
+    }
+    return `${mm} ${hh} * * *`
+  }
+
+  /** Compute the next run time from now */
+  const computeNextRunAt = () => {
+    const [hh, mm] = time.split(':').map(Number)
+    const now = new Date()
+    const next = new Date(now)
+    next.setHours(hh, mm, 0, 0)
+    // If the time has already passed today, schedule for tomorrow
+    if (next <= now) next.setDate(next.getDate() + 1)
+    return next.toISOString()
+  }
 
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!description.trim()) return
-    if (!selectAgent) {
+    if (!selectedAgentId) {
       setErr('Vui lòng tạo ít nhất 1 Agent trước khi giao việc.')
       return
     }
     setErr('')
     setSaving(true)
     
-    // Tự sinh tiêu đề từ nội dung
     let title = description.trim().split('\n')[0].slice(0, 45)
     if (description.length > 45) title += '...'
     if (!title) title = 'Công việc mới'
 
     try {
-      const t = await createTask({
+      const body: Parameters<typeof createTask>[0] = {
         workspace_id: workspaceId,
-        agent_id: selectAgent,
+        agent_id: selectedAgentId,
         title,
         description: description.trim(),
-        status: 'scheduled',
-      })
+      }
+
+      if (scheduleOn) {
+        body.schedule_enabled = true
+        body.schedule_cron = buildScheduleCron()
+        body.next_run_at = computeNextRunAt()
+      }
+
+      const t = await createTask(body)
       refresh()
       nav(`/app/w/${workspaceId}/tasks/${t._id}`, { replace: true })
-    } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Tạo công việc thất bại')
+    } catch (err2) {
+      setErr(getApiErrorMessage(err2, 'Tạo công việc thất bại'))
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center bg-[var(--cf-page-bg)] px-4 font-[family-name:var(--font-cf-body,Inter,sans-serif)]">
-      <div className="w-full max-w-[800px] -translate-y-[10vh]">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center bg-[#f8f9fa] px-4 font-[family-name:var(--font-cf-body,Inter,sans-serif)] antialiased">
+      <div className="w-full max-w-4xl -translate-y-[10vh]">
         
         {/* Welcome Text */}
-        <div className="mb-12 text-center">
-          <h1 className="text-4xl font-semibold tracking-tight cf-ui-text sm:text-5xl">
-            Xin chào!
-          </h1>
-          <p className="mt-3 bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 bg-clip-text text-[2.25rem] font-semibold leading-tight tracking-tight text-transparent sm:text-[2.85rem]">
-            Tôi có thể giúp gì cho bạn hôm nay?
-          </p>
+        <div className="mb-12 flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-8 duration-700">
+          <div className="relative">
+            <div className="absolute inset-0 animate-ping rounded-full bg-blue-400/20 duration-[2000ms]" />
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-50 to-indigo-50 shadow-xl ring-1 ring-blue-100/50">
+              <Sparkles className="h-10 w-10 text-blue-600" strokeWidth={1.5} />
+            </div>
+          </div>
+          <div className="space-y-2 text-center">
+            <h1 className="text-4xl font-bold tracking-tight text-slate-800">Xin chào!</h1>
+            <p className="text-2xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-500">
+              Tôi có thể giúp gì cho bạn hôm nay?
+            </p>
+          </div>
         </div>
 
-        {/* Input Box */}
+        {/* Input Box Redesigned */}
         <form onSubmit={onSubmit} className="relative mx-auto w-full">
-          <div className="cf-ui-surface group relative flex flex-col overflow-hidden rounded-[2rem] shadow-xl transition-all duration-300 focus-within:shadow-2xl focus-within:ring-2 focus-within:ring-[var(--cf-electric)]/30">
+          <div className="group relative flex flex-col rounded-[2.5rem] bg-white p-3 shadow-[0_20px_60px_rgba(0,0,0,0.06)] ring-1 ring-slate-200/60 transition-all duration-300 focus-within:ring-blue-400/30 focus-within:shadow-[0_25px_80px_rgba(0,0,0,0.1)]">
             <textarea
               ref={textareaRef}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void onSubmit()
-                }
+                if (e.key !== 'Enter') return
+                if (e.shiftKey) return
+                if (e.nativeEvent.isComposing) return
+                e.preventDefault()
+                if (saving || !description.trim() || !selectedAgentId) return
+                void onSubmit()
               }}
               placeholder="Giao việc cho Agent hoặc bắt đầu trò chuyện..."
-              className="scrollbar-hide w-full resize-none border-none bg-transparent pb-16 pl-8 pr-8 pt-7 text-lg leading-relaxed cf-ui-text outline-none placeholder:text-[var(--cf-input-placeholder)]"
-              style={{ minHeight: '130px' }}
+              className="w-full resize-none border-none bg-transparent px-6 py-5 text-[18px] leading-relaxed text-slate-800 outline-none ring-0 placeholder:text-slate-400"
+              style={{ minHeight: '120px', maxHeight: '400px' }}
               autoFocus
             />
             
-            {/* Action Bar inside Input */}
-            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pl-3 pr-1">
-              
-              {/* Agent Selector */}
-              <div className="flex items-center gap-2 rounded-full border border-[var(--cf-field-border)] bg-[var(--cf-field-bg)] px-4 py-2 shadow-[var(--cf-field-inner-shadow)] transition-colors hover:bg-[var(--cf-sidebar-row-hover)]">
-                <Sparkles className="h-[18px] w-[18px] text-indigo-500" strokeWidth={2} />
-                <select
-                  value={selectAgent}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  className="cursor-pointer appearance-none bg-transparent pr-4 text-sm font-medium cf-ui-text outline-none"
-                  title="Chọn Agent đảm nhận công việc này"
+            <div className="flex items-center justify-between px-3 pb-2 pt-2">
+              <div className="flex items-center gap-2">
+                {/* File Upload Shortcut */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  onChange={(e) => console.log('File selected:', e.target.files?.[0])}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
                 >
-                  {agents.length === 0 && (
-                    <option value="">— Chưa có Agent —</option>
+                  <Paperclip className="h-[20px] w-[20px]" strokeWidth={1.5} />
+                </button>
+
+                {/* Quick Schedule Button */}
+                <div className="relative">
+                  <button
+                    ref={scheduleBtnRef}
+                    type="button"
+                    onClick={() => setSchedulePopupOpen((v) => !v)}
+                    className={[
+                      'flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-100',
+                      scheduleOn ? 'text-blue-600' : 'text-slate-400',
+                      schedulePopupOpen && 'bg-slate-100'
+                    ].join(' ')}
+                    title="Đặt lịch chạy"
+                  >
+                    <Timer className="h-[20px] w-[20px]" strokeWidth={1.5} />
+                  </button>
+
+                  {schedulePopupOpen && (
+                    <div className="absolute bottom-full left-0 mb-4 w-[320px] origin-bottom-left overflow-hidden rounded-3xl border border-slate-200/60 bg-white p-5 shadow-2xl animate-in fade-in zoom-in duration-200 z-50">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h4 className="text-sm font-bold text-slate-800">Đặt lịch tự động</h4>
+                        <button
+                          type="button"
+                          onClick={() => setScheduleOn(!scheduleOn)}
+                          className={[
+                            'relative flex h-5 w-9 items-center rounded-full transition-colors',
+                            scheduleOn ? 'bg-blue-600' : 'bg-slate-200'
+                          ].join(' ')}
+                        >
+                          <span className={['inline-block h-3 w-3 rounded-full bg-white transition-transform', scheduleOn ? 'translate-x-5' : 'translate-x-1'].join(' ')} />
+                        </button>
+                      </div>
+                      <div className={['space-y-4', !scheduleOn && 'opacity-40 pointer-events-none'].join(' ')}>
+                        <div className="relative">
+                          <select
+                            value={cycle}
+                            onChange={(e) => setCycle(e.target.value)}
+                            className="w-full appearance-none rounded-xl bg-slate-100 py-2.5 pl-4 pr-10 text-xs font-bold text-slate-700 outline-none"
+                          >
+                            <option value="daily">Hàng ngày</option>
+                            <option value="weekly">Hàng tuần</option>
+                            <option value="monthly">Hàng tháng</option>
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                        </div>
+
+                        {cycle === 'weekly' && (
+                          <div>
+                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày trong tuần</div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((d) => {
+                                const active = selectedDays.includes(d)
+                                return (
+                                  <button
+                                    key={d}
+                                    type="button"
+                                    onClick={() => toggleDay(d)}
+                                    className={[
+                                      'flex h-8 w-8 items-center justify-center rounded-lg text-[11px] font-bold transition-all',
+                                      active
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                                    ].join(' ')}
+                                  >
+                                    {d}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {cycle === 'monthly' && (
+                          <div>
+                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày trong tháng</div>
+                            <div className="grid grid-cols-7 gap-1">
+                              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
+                                const active = selectedMonthDays.includes(d)
+                                return (
+                                  <button
+                                    key={d}
+                                    type="button"
+                                    onClick={() => toggleMonthDay(d)}
+                                    className={[
+                                      'flex aspect-square items-center justify-center rounded text-[10px] font-bold transition-all',
+                                      active
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100',
+                                    ].join(' ')}
+                                  >
+                                    {d}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="time"
+                            value={time}
+                            onChange={(e) => setTime(e.target.value)}
+                            className="flex-1 rounded-xl bg-slate-100 py-2.5 px-4 text-xs font-bold text-slate-700 outline-none"
+                          />
+                          <Clock3 className="h-4 w-4 text-slate-400" />
+                        </div>
+                      </div>
+                    </div>
                   )}
-                  {agents.map((a) => (
-                    <option key={a._id} value={a._id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
+                </div>
+
+                {/* Agent Selector Pill */}
+                <div className="ml-2 h-6 w-px bg-slate-100" />
+                <div className="flex items-center gap-2 rounded-full border border-slate-100 bg-slate-50 px-4 py-1.5 transition-all hover:bg-slate-100">
+                  <Sparkles className="h-4 w-4 text-blue-600" strokeWidth={1.5} />
+                  <select
+                    value={selectedAgentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                    className="cursor-pointer bg-transparent text-[13px] font-bold text-slate-700 outline-none"
+                  >
+                    {agents.map((a) => (
+                      <option key={a._id} value={a._id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={saving || !description.trim() || !selectAgent}
-                className="cf-ui-btn-primary flex h-11 w-11 items-center justify-center rounded-full transition-all hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                disabled={saving || !description.trim() || !selectedAgentId}
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 active:scale-95 disabled:bg-slate-100 disabled:text-slate-300 disabled:shadow-none"
               >
-                <Send className="h-5 w-5 translate-x-[1px] translate-y-[1px]" strokeWidth={2} />
+                <Send className="h-5 w-5" strokeWidth={1.5} />
               </button>
             </div>
           </div>
@@ -128,11 +309,15 @@ export function TaskNewPage() {
         {/* Error Message */}
         {err && (
           <div className="mt-6 flex justify-center">
-            <span className="rounded-full bg-[rgb(254_242_242_/_0.9)] px-4 py-1.5 text-sm font-medium text-red-600 dark:bg-[rgb(127_29_29_/_0.25)]">
+            <span className="rounded-full bg-red-50 px-4 py-2 text-sm font-medium text-red-600 ring-1 ring-red-100">
               {err}
             </span>
           </div>
         )}
+
+        <div className="mt-8 text-center text-[0.75rem] font-medium text-slate-400">
+          Nhấn <kbd className="rounded bg-slate-100 px-1.5 py-0.5">Enter</kbd> để tạo công việc nhanh · <kbd className="rounded bg-slate-100 px-1.5 py-0.5">Shift+Enter</kbd> để xuống dòng.
+        </div>
       </div>
     </div>
   )

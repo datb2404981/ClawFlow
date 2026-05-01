@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomUUID } from 'crypto';
 import { CreateUserDto } from '../dto/create-user.dto';
@@ -7,6 +12,7 @@ import { User } from '../schema/user.schema';
 import * as bcrypt from 'bcrypt';
 import type { IUser } from '../users.interface';
 import { UpdateAppSettingsDto } from '../dto/update-app-settings.dto';
+import { WorkspacesService } from './workspaces.service';
 
 type IntegrationProvider = 'gmail' | 'google_calendar' | 'google_drive' | 'notion';
 
@@ -35,7 +41,11 @@ const INTEGRATION_CATALOG: IntegrationCatalogItem[] = [
     provider: 'gmail',
     provider_group: 'google',
     display_name: 'Gmail',
-    required_scopes: ['https://www.googleapis.com/auth/gmail.send'],
+    required_scopes: [
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.modify'
+    ],
     features: [
       'Soạn và gửi email tự động sau khi bạn Approve.',
       'Hỗ trợ trigger task từ email mới (khi bật event flow).',
@@ -97,6 +107,7 @@ const INTEGRATION_CATALOG: IntegrationCatalogItem[] = [
 export class UsersService {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<User>,
+    private readonly workspacesService: WorkspacesService,
   ) {}
 
   private async hashPassword(password: string): Promise<string> {
@@ -166,6 +177,19 @@ export class UsersService {
     };
   }
 
+  /** Gộp chuỗi scope Google (dấu cách / phẩy) thành danh sách duy nhất. */
+  private mergeScopeStrings(...raw: (string | undefined)[]): string[] {
+    const acc: string[] = [];
+    for (const part of raw) {
+      if (!part) continue;
+      for (const piece of String(part).split(/[,\s]+/)) {
+        const t = piece.trim();
+        if (t) acc.push(t);
+      }
+    }
+    return [...new Set(acc)];
+  }
+
   private assertProvider(input: string): IntegrationProvider {
     const v = String(input ?? '').trim();
     if (
@@ -211,14 +235,17 @@ export class UsersService {
       (u as any).integration_connections?.[provider],
       u.email,
     );
+    const rawConn = (u as any).integration_connections?.[provider] || {};
+
     if (u.sso_provider !== 'google') {
       return current;
     }
     // Rule theo yêu cầu: tài khoản login Google được coi là connected cho nhóm Google APIs.
+    // Tuy nhiên, phải có access_token thì mới tính là connected hợp lệ để UI không bị kẹt (không hiện nút Connect).
     if (
-      provider === 'gmail' ||
+      (provider === 'gmail' ||
       provider === 'google_calendar' ||
-      provider === 'google_drive'
+      provider === 'google_drive') && rawConn.access_token
     ) {
       return {
         ...current,
@@ -256,14 +283,151 @@ export class UsersService {
         enabled:
           enabled[item.provider as keyof typeof enabled] ??
           true,
-        connection_state: this.googleAutoConnectionState(u as IUser, item.provider),
+        connection_state: this.googleAutoConnectionState(u, item.provider),
       })),
+    };
+  }
+
+  /**
+   * Tự động làm mới Google Access Token nếu có refresh_token và token cũ đã hết hạn.
+   */
+  private async refreshGoogleTokenIfNeeded(
+    userId: string,
+    provider: IntegrationProvider,
+    conn: any,
+  ): Promise<{ access_token?: string; expires_at?: Date }> {
+    if (!conn?.refresh_token || !conn?.expires_at) return {};
+    
+    const now = new Date();
+    const expiry = new Date(conn.expires_at);
+    // Refresh nếu còn dưới 5 phút hoặc đã hết hạn
+    if (now.getTime() < expiry.getTime() - 5 * 60 * 1000) {
+      return { access_token: conn.access_token, expires_at: expiry };
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET';
+
+    try {
+      const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: conn.refresh_token,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      const data = (await res.json()) as any;
+      if (data.access_token) {
+        const newExpiresAt = new Date(now.getTime() + (data.expires_in || 3600) * 1000);
+        const basePath = `integration_connections.${provider}`;
+        
+        await this.userModel.updateOne(
+          { _id: userId },
+          {
+            $set: {
+              [`${basePath}.access_token`]: data.access_token,
+              [`${basePath}.expires_at`]: newExpiresAt,
+            },
+          },
+        );
+        return { access_token: data.access_token, expires_at: newExpiresAt };
+      }
+      console.error(`Refresh token failed for ${provider}:`, data);
+    } catch (err) {
+      console.error(`Error refreshing token for ${provider}:`, err);
+    }
+    return {};
+  }
+
+  /**
+   * Server Guard & Data Fetcher: Gộp logic trạng thái và lấy token thực tế cho Executor/AI_Core.
+   */
+  async getExecutorIntegrationsGate(userId: string): Promise<{
+    providerStatusString: string;
+    connections: Record<string, IntegrationConnectionState & { access_token?: string; refresh_token?: string }>;
+    gmail_send: boolean;
+    calendar_create: boolean;
+    drive_upload: boolean;
+    notion_update: boolean;
+    reasons: Record<string, string>;
+  }> {
+    const u = (await this.findOne({ _id: userId } as any)) as unknown as IUser;
+    const enabled = {
+      gmail: (u as any).integration_gmail_enabled ?? true,
+      google_calendar: (u as any).integration_google_calendar_enabled ?? true,
+      google_drive: (u as any).integration_drive_enabled ?? true,
+      notion: (u as any).integration_notion_enabled ?? true,
+    };
+
+    const lines: string[] = [];
+    const connections: Record<string, any> = {};
+    const reasons: Record<string, string> = {};
+
+    for (const item of INTEGRATION_CATALOG) {
+      const connState = this.googleAutoConnectionState(u, item.provider);
+      const rawConn = (u as any).integration_connections?.[item.provider] || {};
+      
+      let finalToken = rawConn.access_token;
+      let finalExpiresAt = rawConn.expires_at;
+
+      // Auto-refresh cho nhóm Google
+      if (item.provider_group === 'google' && rawConn.refresh_token) {
+        const refreshed = await this.refreshGoogleTokenIfNeeded(userId, item.provider, rawConn);
+        if (refreshed.access_token) {
+          finalToken = refreshed.access_token;
+          finalExpiresAt = refreshed.expires_at;
+        }
+      }
+
+      const fullConn = { 
+        ...connState, 
+        access_token: finalToken, 
+        refresh_token: rawConn.refresh_token,
+        expires_at: finalExpiresAt,
+      };
+      
+      connections[item.provider] = fullConn;
+
+      // Xác định lý do/trạng thái
+      if (!enabled[item.provider as keyof typeof enabled]) {
+        reasons[item.provider] = 'disabled_by_user';
+      } else if (!fullConn.connected) {
+        reasons[item.provider] = 'not_connected';
+      } else if (fullConn.needs_reauth) {
+        reasons[item.provider] = 'needs_reauthorize';
+      } else if (item.provider_group === 'google' && !finalToken) {
+        // Có thể login SSO nhưng chưa Connect chính thức để lấy token
+        reasons[item.provider] = 'missing_access_token';
+      } else {
+        reasons[item.provider] = 'ok';
+      }
+
+      if (reasons[item.provider] === 'ok') {
+        lines.push(`- ĐÃ liên kết ${item.display_name}`);
+      } else {
+        lines.push(`- CHƯA liên kết (hoặc cần kết nối lại) ${item.display_name}`);
+      }
+    }
+
+    return {
+      providerStatusString: lines.join('\n'),
+      connections,
+      gmail_send: reasons['gmail'] === 'ok',
+      calendar_create: reasons['google_calendar'] === 'ok',
+      drive_upload: reasons['google_drive'] === 'ok',
+      notion_update: reasons['notion'] === 'ok',
+      reasons,
     };
   }
 
   async getIntegrationConnectUrl(
     user: IUser | undefined,
     providerInput: string,
+    workspaceIdInput?: string,
   ): Promise<{
     provider: IntegrationProvider;
     connect_url: string;
@@ -271,29 +435,61 @@ export class UsersService {
   }> {
     const u = await this.findOne(user);
     const provider = this.assertProvider(providerInput);
-    const nonce = randomUUID();
+    const userId = String(u._id);
+    const wid = String(workspaceIdInput ?? '').trim();
+    if (!wid) {
+      throw new BadRequestException('Thiếu workspace_id khi tạo link liên kết.');
+    }
+    await this.workspacesService.findOne(userId, wid);
+    const nonce = `${randomUUID()}.${userId}.${wid}`;
     const base =
       process.env.BACKEND_PUBLIC_URL?.replace(/\/$/, '') ||
-      `http://127.0.0.1:${process.env.PORT ?? '8080'}/api/v1`;
+      `http://localhost:${process.env.PORT ?? '8080'}/api/v1`;
 
-    // MVP callback URL: phục vụ flow local/dev trước khi gắn OAuth provider thực.
+    const catalogItem = INTEGRATION_CATALOG.find((c) => c.provider === provider);
+
+    if (catalogItem?.provider_group === 'google') {
+      const clientId = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
+      const googleCatalog = INTEGRATION_CATALOG.filter(
+        (c) => c.provider_group === 'google',
+      );
+      const scopeSet = new Set<string>();
+      for (const g of googleCatalog) {
+        for (const s of g.required_scopes) scopeSet.add(s);
+      }
+      const scopes = [...scopeSet].join(' ');
+      const fullScopes = `openid email profile ${scopes}`;
+      // Note: This redirect URI must be registered in Google Cloud Console
+      const redirectUri = `${base}/settings/integrations/${provider}/callback`;
+      
+      const connectUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+        redirectUri,
+      )}&response_type=code&scope=${encodeURIComponent(
+        fullScopes,
+      )}&access_type=offline&prompt=consent&state=${encodeURIComponent(nonce)}`;
+
+      return {
+        provider,
+        connect_url: connectUrl,
+        note: 'Chuyển hướng đến trang đăng nhập Google thực tế. Vui lòng đảm bảo Redirect URI đã được cấu hình trong Google Console.',
+      };
+    }
+
+    // Fallback/Mock for Notion or if not google
     const connectUrl = `${base}/settings/integrations/${provider}/callback?state=${encodeURIComponent(
       nonce,
     )}&mock=1&email=${encodeURIComponent(String(u.email ?? ''))}`;
     return {
       provider,
       connect_url: connectUrl,
-      note:
-        provider === 'notion'
-          ? 'Notion cần OAuth riêng. URL hiện tại là MVP callback mô phỏng.'
-          : 'Google OAuth URL hiện tại là MVP callback mô phỏng; có thể thay bằng consent URL thực.',
+      note: 'Đây là URL mô phỏng do chưa cấu hình OAuth provider này.',
     };
   }
 
   async connectIntegrationCallback(
     user: IUser | undefined,
     providerInput: string,
-    q: { scopes?: string; email?: string; error?: string },
+    q: { scopes?: string; scope?: string; email?: string; error?: string; code?: string },
   ): Promise<{
     provider: IntegrationProvider;
     connected: boolean;
@@ -304,26 +500,106 @@ export class UsersService {
       throw new UnauthorizedException('Chưa đăng nhập.');
     }
     const provider = this.assertProvider(providerInput);
+    const catalogItem = INTEGRATION_CATALOG.find((c) => c.provider === provider)!;
     const now = new Date();
-    const scopes = String(q?.scopes ?? '')
-      .split(/[,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const granted = this.mergeScopeStrings(q?.scopes, q?.scope);
 
     const $set: Record<string, unknown> = {};
-    const basePath = `integration_connections.${provider}`;
-    if (q?.error) {
-      $set[`${basePath}.connected`] = false;
-      $set[`${basePath}.needs_reauth`] = true;
-      $set[`${basePath}.last_error`] = String(q.error);
+    if (catalogItem.provider_group === 'google') {
+      if (q?.error) {
+        const basePath = `integration_connections.${provider}`;
+        $set[`${basePath}.connected`] = false;
+        $set[`${basePath}.needs_reauth`] = true;
+        $set[`${basePath}.last_error`] = String(q.error);
+      } else {
+        let accessToken = '';
+        let refreshToken = '';
+        let expiresAt: Date | undefined;
+
+        if (q.code) {
+          const clientId = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
+          const clientSecret = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET';
+          const base =
+            process.env.BACKEND_PUBLIC_URL?.replace(/\/$/, '') ||
+            `http://localhost:${process.env.PORT ?? '8080'}/api/v1`;
+          const redirectUri = `${base}/settings/integrations/${provider}/callback`;
+
+          try {
+            const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                code: q.code,
+                client_id: clientId,
+                client_secret: clientSecret,
+                redirect_uri: redirectUri,
+                grant_type: 'authorization_code',
+              }),
+            });
+            const tokenData = (await tokenRes.json()) as Record<string, any>;
+            if (tokenData.access_token) {
+              accessToken = tokenData.access_token;
+              if (tokenData.refresh_token) {
+                refreshToken = tokenData.refresh_token;
+              }
+              if (tokenData.expires_in) {
+                expiresAt = new Date(now.getTime() + tokenData.expires_in * 1000);
+              }
+            } else {
+              console.error('Google token exchange error:', tokenData);
+            }
+          } catch (err) {
+            console.error('Failed to exchange Google code:', err);
+          }
+        }
+
+        const googleItems = INTEGRATION_CATALOG.filter(
+          (c) => c.provider_group === 'google',
+        );
+        const extEmail = q.email;
+        for (const item of googleItems) {
+          const basePath = `integration_connections.${item.provider}`;
+          const ok = item.required_scopes.every((s) => granted.includes(s));
+          // Nếu có token thật, thì connected = true
+          const isConnected = accessToken ? true : ok;
+          
+          $set[`${basePath}.connected`] = isConnected;
+          $set[`${basePath}.needs_reauth`] = false;
+          $set[`${basePath}.granted_scopes`] = item.required_scopes.filter((s) =>
+            granted.includes(s),
+          );
+          $set[`${basePath}.connected_at`] = now;
+          $set[`${basePath}.last_error`] = '';
+          if (extEmail) {
+            $set[`${basePath}.external_account_email`] = extEmail;
+          }
+          if (accessToken) {
+            $set[`${basePath}.access_token`] = accessToken;
+          }
+          if (refreshToken) {
+            $set[`${basePath}.refresh_token`] = refreshToken;
+          }
+          if (expiresAt) {
+            $set[`${basePath}.expires_at`] = expiresAt;
+          }
+        }
+      }
     } else {
-      $set[`${basePath}.connected`] = true;
-      $set[`${basePath}.needs_reauth`] = false;
-      $set[`${basePath}.granted_scopes`] = scopes;
-      $set[`${basePath}.connected_at`] = now;
-      $set[`${basePath}.last_error`] = '';
-      if (q?.email) {
-        $set[`${basePath}.external_account_email`] = q.email;
+      const basePath = `integration_connections.${provider}`;
+      if (q?.error) {
+        $set[`${basePath}.connected`] = false;
+        $set[`${basePath}.needs_reauth`] = true;
+        $set[`${basePath}.last_error`] = String(q.error);
+      } else {
+        $set[`${basePath}.connected`] = true;
+        $set[`${basePath}.needs_reauth`] = false;
+        $set[`${basePath}.granted_scopes`] = granted;
+        $set[`${basePath}.connected_at`] = now;
+        $set[`${basePath}.last_error`] = '';
+        $set[`${basePath}.access_token`] = `mock_${provider}_token_${Date.now()}`;
+        if (q?.email) {
+          $set[`${basePath}.external_account_email`] = q.email;
+        }
       }
     }
 
@@ -363,58 +639,6 @@ export class UsersService {
       },
     );
     return { provider, disconnected: true };
-  }
-
-  async getExecutorIntegrationsGate(userId: string): Promise<{
-    gmail_send: boolean;
-    calendar_create: boolean;
-    drive_upload: boolean;
-    notion_update: boolean;
-    reasons: Record<string, string>;
-  }> {
-    const u = await this.findOne({ _id: userId } as IUser);
-    const enabled = {
-      gmail: (u as any).integration_gmail_enabled ?? true,
-      google_calendar: (u as any).integration_google_calendar_enabled ?? true,
-      google_drive: (u as any).integration_drive_enabled ?? true,
-      notion: (u as any).integration_notion_enabled ?? true,
-    };
-    const status = await this.getIntegrationsStatus({ _id: userId } as IUser);
-    const byProvider = new Map(
-      status.providers.map((p) => [p.provider, p]),
-    );
-    const check = (provider: IntegrationProvider): {
-      ok: boolean;
-      reason: string;
-    } => {
-      const p = byProvider.get(provider);
-      if (!p) return { ok: false, reason: 'missing_provider_status' };
-      if (!p.enabled) return { ok: false, reason: 'disabled_by_user' };
-      if (!p.connection_state.connected) {
-        return { ok: false, reason: 'not_connected' };
-      }
-      if (p.connection_state.needs_reauth) {
-        return { ok: false, reason: 'needs_reauthorize' };
-      }
-      return { ok: true, reason: 'ok' };
-    };
-
-    const gmail = check('gmail');
-    const cal = check('google_calendar');
-    const drive = check('google_drive');
-    const notion = check('notion');
-    return {
-      gmail_send: gmail.ok && enabled.gmail,
-      calendar_create: cal.ok && enabled.google_calendar,
-      drive_upload: drive.ok && enabled.google_drive,
-      notion_update: notion.ok && enabled.notion,
-      reasons: {
-        gmail_send: gmail.reason,
-        calendar_create: cal.reason,
-        drive_upload: drive.reason,
-        notion_update: notion.reason,
-      },
-    };
   }
 
   async updateAppSettings(

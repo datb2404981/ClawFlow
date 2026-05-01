@@ -113,6 +113,16 @@ export class TasksController {
     return this.tasksService.rejectTask(user._id, taskId, q.workspace_id);
   }
 
+  @Patch(':taskId/approve-action')
+  @ResponseMessage('Đã xử lý action')
+  approveAction(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Body() body: { actionIndex: number; decision: 'approve' | 'reject'; editedPayload?: any },
+  ) {
+    return this.tasksService.approveAction(user._id, taskId, body);
+  }
+
   @Delete(':taskId')
   @ResponseMessage('Xóa task thành công')
   remove(

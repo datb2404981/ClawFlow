@@ -63,7 +63,8 @@ export class AiCoreService {
     message: string,
     userId: string,
     sessionId: string,
-    onChunk: (chunk: string) => void,
+    onEvent: (event: Record<string, any>) => void,
+    integrations?: Record<string, any>,
   ): Promise<string> {
     const url = `${this.baseUrl}/api/v1/chat/stream`;
     try {
@@ -76,6 +77,7 @@ export class AiCoreService {
           user_id: userId,
           session_id: sessionId,
           message,
+          integrations,
         }),
       });
 
@@ -102,14 +104,24 @@ export class AiCoreService {
           const payload = trimmed.replace(/^data:\s*/i, '').trim();
           if (!payload) continue;
           try {
-            const obj = JSON.parse(payload) as Record<string, unknown>;
-            if (typeof obj.chunk === 'string' && obj.chunk.length > 0) {
+            const obj = JSON.parse(payload) as Record<string, any>;
+            // #region agent log
+            if (
+              typeof obj?.chunk === 'string' &&
+              /PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(
+                obj.chunk,
+              )
+            ) {
+              fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`ai-core-stream:${sessionId}`,hypothesisId:'H1',location:'Backend/src/module/ai-center/service/ai-core.service.ts:111',message:'incoming_sse_chunk_contains_reviewer_markers',data:{type:obj?.type ?? '',node:obj?.node ?? '',chunkPreview:String(obj.chunk).slice(0,200)},timestamp:Date.now()})}).catch(()=>{});
+            }
+            // #endregion
+            if (obj.type === 'chunk' && typeof obj.chunk === 'string') {
               full += obj.chunk;
-              onChunk(obj.chunk);
             }
             if (typeof obj.error === 'string') {
               throw new Error(obj.error);
             }
+            onEvent(obj);
           } catch (e) {
             if (e instanceof SyntaxError) continue;
             throw e;
@@ -130,6 +142,9 @@ export class AiCoreService {
       if (carry.trim()) {
         flushBlock(carry);
       }
+      // #region agent log
+      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`ai-core-stream:${sessionId}`,hypothesisId:'H2',location:'Backend/src/module/ai-center/service/ai-core.service.ts:140',message:'full_stream_result_compacted',data:{fullLen:full.length,hasReviewMarkers:/PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(full),preview:full.slice(-240)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
       return full;
     } catch (error) {

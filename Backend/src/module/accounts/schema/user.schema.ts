@@ -24,6 +24,12 @@ export class IntegrationConnection {
   expires_at?: Date;
 
   @Prop()
+  access_token?: string;
+
+  @Prop()
+  refresh_token?: string;
+
+  @Prop()
   last_error?: string;
 
   @Prop()
@@ -34,31 +40,31 @@ export class IntegrationConnection {
 @Schema({ timestamps: true })
 export class User {
   @Prop({ required: true, unique: true, index: true })
-  publicId: string;
+  publicId!: string;
 
   @Prop({ required: true })
-  username: string;
+  username!: string;
 
   @Prop({ unique: true })
-  email: string;
+  email!: string;
 
   @Prop({ required: true })
-  password: string;
+  password!: string;
 
   @Prop({
     type: String,
     enum: ['google', 'facebook', 'github', 'linkedin', 'microsoft', 'apple'],
   })
-  sso_provider: string;
+  sso_provider!: string;
 
   @Prop()
-  fullName: string;
+  fullName!: string;
 
   @Prop()
-  avatar_url: string;
+  avatar_url!: string;
 
   @Prop()
-  refreshToken: string;
+  refreshToken!: string;
 
   /** Integration toggles (global theo user). Mặc định bật. */
   @Prop({ type: Boolean, default: true })
@@ -88,8 +94,8 @@ export class User {
   })
   integration_connections?: Record<IntegrationProvider, IntegrationConnection>;
 
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt!: Date;
+  updatedAt!: Date;
 }
 
 export type UserDocument = HydratedDocument<User>;

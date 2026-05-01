@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,156 +17,9 @@ def _load_env_layers() -> None:
     load_dotenv(_APP_ROOT / ".env", override=False)
     load_dotenv(override=False)
 
-
-def _backfill_tracing_from_app_dotenv() -> None:
-    """Docker/Compose có thể inject `LANGSMITH_API_KEY=` rỗng từ mẫu — khi đó load_dotenv không ghi đè; đọc file và lấp chỗ trống."""
-    path = _APP_ROOT / ".env"
-    if not path.is_file():
-        return
-    try:
-        from dotenv import dotenv_values
-    except ImportError:
-        return
-    vals = dotenv_values(path) or {}
-    for name in (
-        "LANGSMITH_API_KEY",
-        "LANGCHAIN_API_KEY",
-        "LANGSMITH_PROJECT",
-        "LANGCHAIN_PROJECT",
-        "LANGSMITH_ENDPOINT",
-        "LANGCHAIN_ENDPOINT",
-        "LANGSMITH_WORKSPACE_ID",
-        "LANGCHAIN_WORKSPACE_ID",
-    ):
-        cur = (os.environ.get(name) or "").strip()
-        if cur:
-            continue
-        v = (vals.get(name) or "").strip()
-        if v:
-            os.environ[name] = v
-
-
-def _normalize_tracing_secret(value: str) -> str:
-    """Chuẩn hóa API key / secret từ .env: BOM, ngoặc, xuống dòng thừa."""
-    s = (value or "").strip().strip('"').strip("'")
-    if s.startswith("\ufeff"):
-        s = s[1:].strip()
-    return s.replace("\n", "").replace("\r", "").strip()
-
-
-def _sanitize_langsmith_workspace_env() -> None:
-    """WORKSPACE_ID sai (vd. nhầm project id / trace id) thường gây 403 Forbidden trên ingest."""
-    for var in ("LANGSMITH_WORKSPACE_ID", "LANGCHAIN_WORKSPACE_ID"):
-        raw = _normalize_tracing_secret(os.environ.get(var) or "")
-        if not raw:
-            os.environ.pop(var, None)
-            continue
-        try:
-            uuid.UUID(raw)
-        except ValueError:
-            print(
-                f"[LangSmith] Cảnh báo: {var} không phải UUID workspace hợp lệ — đã gỡ để tránh 403.",
-                flush=True,
-            )
-            os.environ.pop(var, None)
-        else:
-            os.environ[var] = raw
-
-
-def _clear_langsmith_utils_caches() -> None:
-    """get_env_var / get_tracer_project trong langsmith.utils dùng lru_cache — lần đọc ENDPOINT
-    trước khi .env được áp dụng sẽ khóa URL mặc định US, ingest vẫn POST api.smith (403 với key EU)."""
-    try:
-        import langsmith.utils as ls_utils
-
-        for attr in ("get_env_var", "get_tracer_project", "get_api_key"):
-            fn = getattr(ls_utils, attr, None)
-            if callable(fn) and hasattr(fn, "cache_clear"):
-                fn.cache_clear()
-    except Exception:
-        pass
-
-
-def _bootstrap_langsmith() -> None:
-    """Đồng bộ biến LangChain/LangSmith; gửi trace đồng bộ trước khi HTTP trả (FastAPI)."""
-    _sanitize_langsmith_workspace_env()
-
-    smith_key = _normalize_tracing_secret(os.environ.get("LANGSMITH_API_KEY") or "")
-    chain_key = _normalize_tracing_secret(os.environ.get("LANGCHAIN_API_KEY") or "")
-    key = smith_key or chain_key
-    if not key:
-        print(
-            "[LangSmith] Thiếu LANGSMITH_API_KEY / LANGCHAIN_API_KEY — không gửi trace. "
-            "Đặt key trong Backend/.env (Docker) hoặc AI_Core/.env; xóa dòng LANGSMITH_API_KEY= rỗng nếu có.",
-            flush=True,
-        )
-        return
-    os.environ["LANGSMITH_API_KEY"] = key
-    os.environ["LANGCHAIN_API_KEY"] = key
-
-    off = ("false", "0", "no", "off")
-    if (os.environ.get("LANGSMITH_TRACING") or "").strip().lower() in off:
-        print("[LangSmith] LANGSMITH_TRACING=tắt — bỏ qua.", flush=True)
-        return
-    if (os.environ.get("LANGCHAIN_TRACING_V2") or "").strip().lower() in off:
-        print("[LangSmith] LANGCHAIN_TRACING_V2=tắt — bỏ qua.", flush=True)
-        return
-
-    os.environ.setdefault("LANGSMITH_TRACING", "true")
-    os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
-    os.environ.setdefault("LANGCHAIN_CALLBACKS_BACKGROUND", "false")
-
-    proj = (
-        (os.environ.get("LANGSMITH_PROJECT") or "").strip()
-        or (os.environ.get("LANGCHAIN_PROJECT") or "").strip()
-    )
-    if proj:
-        os.environ.setdefault("LANGSMITH_PROJECT", proj)
-        os.environ.setdefault("LANGCHAIN_PROJECT", proj)
-
-    # Ưu tiên LANGSMITH_ENDPOINT rồi LANGCHAIN_ENDPOINT; luôn ghi đè cả hai cho trùng nhau.
-    _ep_raw = (
-        (os.environ.get("LANGSMITH_ENDPOINT") or "").strip()
-        or (os.environ.get("LANGCHAIN_ENDPOINT") or "").strip()
-    )
-    if _ep_raw:
-        _ep = _ep_raw.rstrip("/")
-        os.environ["LANGSMITH_ENDPOINT"] = _ep
-        os.environ["LANGCHAIN_ENDPOINT"] = _ep
-    else:
-        print(
-            "[LangSmith] Cảnh báo: không thấy LANGSMITH_ENDPOINT hay LANGCHAIN_ENDPOINT trong môi trường — "
-            "SDK sẽ dùng máy chủ US (api.smith.langchain.com). Org trên eu.smith.langchain.com cần: "
-            "LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com (và cùng URL cho LANGCHAIN_ENDPOINT) "
-            "trong Backend/.env rồi restart ai_core.",
-            flush=True,
-        )
-
-    _proj = (
-        os.environ.get("LANGSMITH_PROJECT")
-        or os.environ.get("LANGCHAIN_PROJECT")
-        or "default"
-    )
-    os.environ["LANGSMITH_PROJECT"] = _proj
-    os.environ["LANGCHAIN_PROJECT"] = _proj
-
-    _clear_langsmith_utils_caches()
-
-    _cb = os.environ.get("LANGCHAIN_CALLBACKS_BACKGROUND", "false")
-    _ep_log = (
-        os.environ.get("LANGCHAIN_ENDPOINT")
-        or os.environ.get("LANGSMITH_ENDPOINT")
-        or "(mặc định US)"
-    )
-    print(
-        f"[LangSmith] Tracing bật · project={_proj} · endpoint={_ep_log} · LANGCHAIN_CALLBACKS_BACKGROUND={_cb}",
-        flush=True,
-    )
-
-
-_load_env_layers()
-_backfill_tracing_from_app_dotenv()
-_bootstrap_langsmith()
+def _disable_langsmith_tracing() -> None:
+    # Đã loại bỏ toàn bộ logic LangSmith để không gửi trace và không log lỗi 403 nữa.
+    pass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
