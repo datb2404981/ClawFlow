@@ -14,6 +14,38 @@ import email.utils
 
 
 @tool
+def draft_gmail_tool(
+    to: str,
+    subject: str,
+    body: str,
+    reply_to_message_id: str = "",
+    config: Annotated[RunnableConfig, InjectedToolArg] = None,
+) -> str:
+    """
+    BẮT BUỘC SỬ DỤNG công cụ này NGAY LẬP TỨC khi người dùng yêu cầu: 
+    VIẾT, GỬI, SOẠN THẢO, TRẢ LỜI, NHẮN email. 
+    Không cần (và KHÔNG ĐƯỢC) gọi công cụ đọc email trước khi viết, trừ khi user yêu cầu.
+    """
+    import json
+    return f"Đã soạn xong bản nháp email tới **{to}** với tiêu đề **{subject}**.\n\nNội dung:\n{body}\n\n" + \
+           "<!--CF_ACTION_PLAN_START-->" + \
+           json.dumps({
+               "requires_human": True,
+               "actions": [{
+                   "type": "send_email",
+                   "label": f"Gửi email tới {to}",
+                   "payload": {
+                       "to": to,
+                       "subject": subject,
+                       "body": body,
+                       "reply_to_message_id": reply_to_message_id
+                   }
+               }]
+           }, ensure_ascii=False) + \
+           "<!--CF_ACTION_PLAN_END-->"
+
+
+@tool
 def send_gmail_tool(
     to: str,
     subject: str,
@@ -21,8 +53,10 @@ def send_gmail_tool(
     reply_to_message_id: str = "",
     config: Annotated[RunnableConfig, InjectedToolArg] = None,
 ) -> str:
-    """Gửi email hoặc reply email qua Gmail API.
-
+    """
+    SỬ DỤNG công cụ này ĐỂ GỬI NGAY LẬP TỨC một email (không qua bước nháp)
+    hoặc reply email qua Gmail API. 
+    Chỉ dùng khi người dùng xác nhận "Gửi đi" hoặc "Xác nhận gửi".
     Args:
         to: Địa chỉ email người nhận.
         subject: Tiêu đề email.

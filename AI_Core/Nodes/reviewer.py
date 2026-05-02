@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_ollama import ChatOllama
-
-from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
 from state import ClawFlowState
 from Utils.messages import last_human_text_excluding_internal
 from Utils.text_sanitize import sanitize_assistant_text
@@ -56,6 +53,10 @@ async def reviewer_node(state: ClawFlowState):
         "token gmail",
         "access_token",
         "connect gmail",
+        "đã cấp quyền",
+        "đồng ý truy cập",
+        "xác nhận cấp quyền",
+        "hành động đã được thực hiện",
     )
     final_lower = final_answer.lower()
     if any(p in final_lower for p in _INTEGRATION_PHRASES):
@@ -70,9 +71,6 @@ async def reviewer_node(state: ClawFlowState):
         review_count = state.get("review_count", 0) + 1
         return {"review_count": review_count}
 
-    # LLM dùng để review (cùng model Ollama với agent)
-    llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL)
-
     prompt = f"""Bạn là một KIỂM DUYỆT VIÊN (REVIEWER) nghiêm ngặt.
 Nhiệm vụ của bạn là kiểm tra xem CÂU TRẢ LỜI CỦA AI có giải quyết được YÊU CẦU GỐC CỦA NGƯỜI DÙNG hay không.
 
@@ -86,15 +84,25 @@ Luật:
 3. Nếu câu trả lời LỖI, THIẾU SÓT hoặc TỪ CHỐI LÀM VIỆC sai trái → Trả về chữ: FAIL kèm theo lý do cực ngắn.
 CHỈ TRẢ VỀ "PASS" HOẶC "FAIL ...". KHÔNG CHÀO HỎI, KHÔNG GIẢI THÍCH DÀI DÒNG.
 """
-    response = await llm.ainvoke(prompt)
-    feedback = response.content.strip().upper()
+
+    # LLM dùng để review (Sử dụng Gemini 1.5 Flash để ổn định nhất)
+    GEMINI_MODEL_REVIEWER = "gemini-1.5-flash"
+    from Utils.gemini_client import gemini_client
+
+    gemini_resp = await gemini_client.generate_content_async(
+        model=GEMINI_MODEL_REVIEWER,
+        contents=[original_query, final_answer],
+        system_instruction=prompt,
+        temperature=0.2
+    )
+    feedback = (gemini_resp.text or "").strip().upper()
 
     review_count = state.get("review_count", 0) + 1
 
     if feedback.startswith("PASS"):
         return {"review_count": review_count}
     else:
-        # Tiền tố nội bộ — Frontend lọc không hiển thị; không dùng chữ FAIL để tránh lộ như câu trả lời.
+        # Tiền tố nội bộ — Frontend lọc không hiển thị
         hint = (
             "[SYSTEM FEEDBACK] Câu trả lời trước chưa đạt yêu cầu! "
             "Vui lòng đọc kỹ lại YÊU CẦU GỐC và tạo ra câu trả lời ĐẦY ĐỦ hơn. "

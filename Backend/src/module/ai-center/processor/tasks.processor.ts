@@ -16,7 +16,7 @@ export class TasksProcessor extends WorkerHost {
 
   async process(job: Job<any, any, string>): Promise<any> {
     if (job.name === 'scheduler_tick') {
-      this.logger.log(`⏰ Scheduler tick bắt đầu [${job.id}]`);
+      // this.logger.log(`⏰ Scheduler tick bắt đầu [${job.id}]`);
       return this.tasksService.schedulerTick();
     }
 

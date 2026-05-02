@@ -14,6 +14,7 @@ export type TaskStatus =
   | 'failed'
 
 export type TaskMessageRow = {
+  messageId?: string
   role: 'user' | 'assistant'
   content: string
   /** Bước tiến trình (leader / tool) — stream từ socket. */
@@ -29,64 +30,59 @@ export function mergeTaskMessagesPreferLocal(
   prev: Task | null,
   fetched: Task,
 ): Task {
+  if (!prev || String(prev._id ?? '') !== String(fetched._id ?? '')) {
+    return fetched
+  }
+
   // #region agent log
   const debugMerge = (stage: string, extra: Record<string, unknown> = {}) => {
     fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`merge-task:${String(fetched?._id ?? '')}`,hypothesisId:'H8',location:'Frontend/src/api/tasks.ts:31',message:stage,data:{prevLen:Array.isArray(prev?.messages)?prev?.messages?.length:0,fetchedLen:Array.isArray(fetched?.messages)?fetched?.messages?.length:0,prevStatus:prev?.status ?? '',fetchedStatus:fetched?.status ?? '',...extra},timestamp:Date.now()})}).catch(()=>{});
   }
   // #endregion
-  if (!prev || String(prev._id ?? '') !== String(fetched._id ?? '')) {
-    // #region agent log
-    debugMerge('direct_return_fetched_no_prev_or_id_mismatch')
-    // #endregion
-    return fetched
-  }
-  const pMsgs = prev.messages ?? []
-  const fMsgs = [...(fetched.messages ?? [])]
-  if (pMsgs.length === 0) return fetched
 
-  // API đôi khi trả messages=[]/thiếu trước khi Mongo kịp ghi — không được thay bằng [assistant] mất user
-  if (fMsgs.length === 0) {
-    // #region agent log
-    debugMerge('fetched_empty_keep_prev')
-    // #endregion
-    return { ...fetched, messages: pMsgs }
+  // Dictionary approach: Sử dụng Map để chống lặp tin nhắn dựa trên messageId
+  const msgMap = new Map<string, TaskMessageRow>()
+  
+  const getMsgKey = (m: TaskMessageRow, index: number) => {
+    if (m.messageId) return m.messageId
+    return `${m.role}_idx_${index}`
   }
 
-  const msgLen = (m: TaskMessageRow | undefined) =>
-    String(m?.content ?? '').trim().length
-
-  const lastP = pMsgs[pMsgs.length - 1]
-  if (lastP?.role !== 'assistant') return fetched
-
-  const lastF = fMsgs[fMsgs.length - 1]
-
-  if (lastF?.role === 'assistant') {
-    if (msgLen(lastP) > msgLen(lastF)) {
-      fMsgs[fMsgs.length - 1] = {
-        ...lastF,
-        content: String(lastP.content ?? ''),
-        steps:
-          Array.isArray(lastF.steps) && lastF.steps.length > 0
-            ? lastF.steps
-            : lastP.steps ?? [],
-      }
-    }
-    // #region agent log
-    debugMerge('both_assistant_return_fmsgs', { finalLen: fMsgs.length })
-    // #endregion
-    return { ...fetched, messages: fMsgs }
-  }
-
-  fMsgs.push({
-    role: 'assistant',
-    content: String(lastP.content ?? ''),
-    steps: Array.isArray(lastP.steps) ? lastP.steps : [],
-    createdAt: lastP.createdAt,
+  // 1. Nạp tin nhắn từ fetched (Dữ liệu từ DB)
+  const fMsgs = fetched.messages || []
+  fMsgs.forEach((m, idx) => {
+    msgMap.set(getMsgKey(m, idx), { ...m })
   })
-  // #region agent log
-  debugMerge('append_prev_assistant_to_fetched', { finalLen: fMsgs.length })
-  // #endregion
-  return { ...fetched, messages: fMsgs }
+
+  // 2. Ghi đè bằng tin nhắn từ local (Để giữ nội dung đang stream dở hoặc steps mới nhất)
+  const pMsgs = prev.messages || []
+  pMsgs.forEach((m, idx) => {
+    const key = getMsgKey(m, idx)
+    const existing = msgMap.get(key)
+    
+    if (existing) {
+      const pLen = (m.content || '').length
+      const fLen = (existing.content || '').length
+      if (pLen > fLen) {
+        msgMap.set(key, {
+          ...existing,
+          content: m.content,
+          steps: (m.steps && m.steps.length > 0) ? m.steps : existing.steps
+        })
+      }
+    } else {
+      msgMap.set(key, { ...m })
+    }
+  })
+
+  const mergedMessages = Array.from(msgMap.values()).sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+    return timeA - timeB
+  })
+
+  debugMerge('merge_complete_map_strategy', { finalLen: mergedMessages.length })
+  return { ...fetched, messages: mergedMessages }
 }
 
 export type Task = {
@@ -240,10 +236,11 @@ export async function appendTaskMessage(
   taskId: string,
   workspaceId: string,
   content: string,
+  messageId?: string,
 ): Promise<Task> {
   const { data } = await api.post<ApiEnvelope<Task>>(
     `/tasks/${taskId}/messages`,
-    { content },
+    { content, messageId },
     { params: { workspace_id: workspaceId } },
   )
   return data.data

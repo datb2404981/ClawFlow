@@ -15,7 +15,7 @@ function resolveApiBase(): string {
       return '/api/v1'
     }
     const p = import.meta.env.VITE_NEST_PORT?.trim() || '8080'
-    return `http://127.0.0.1:${p}/api/v1`
+    return `http://localhost:${p}/api/v1`
   }
   return 'http://localhost:8080/api/v1'
 }

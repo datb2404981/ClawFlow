@@ -34,6 +34,9 @@ export class IntegrationConnection {
 
   @Prop()
   external_account_email?: string;
+
+  @Prop()
+  last_sync_at?: Date;
 }
 
 /** `publicId` (UUID): định danh công khai / mở rộng multi-agent; `_id` Mongo giữ nội bộ. */

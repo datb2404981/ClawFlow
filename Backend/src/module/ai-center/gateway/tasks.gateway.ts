@@ -56,11 +56,20 @@ export class TasksGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Phát tín hiệu chuyển trạng thái task (vd: completed, failed)
    */
-  emitTaskStatus(workspaceId: string, taskId: string, status: string, result?: string) {
+  emitTaskStatus(
+    workspaceId: string, 
+    taskId: string, 
+    status: string, 
+    result?: string, 
+    messageId?: string,
+    extraData?: Record<string, any>
+  ) {
     this.server.to(workspaceId).emit('task.status', {
       taskId,
       status,
       result,
+      messageId,
+      ...extraData
     });
   }
 }

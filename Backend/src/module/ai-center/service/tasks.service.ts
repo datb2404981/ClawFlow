@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+import * as cronParser from 'cron-parser';
 import {
   BadRequestException,
   Injectable,
@@ -293,6 +295,12 @@ export class TasksService {
     }
     const ACTION_PLAN_START = '<!--CF_ACTION_PLAN_START-->';
     const ACTION_PLAN_END = '<!--CF_ACTION_PLAN_END-->';
+    const existingMsgs = (taskDoc.messages || []);
+    const isFirstRun = existingMsgs.length === 0 && (taskDoc.description || '').trim().length > 0;
+    const currentTurn = existingMsgs.length + (isFirstRun ? 1 : 0);
+    const assistantMsgId = `msg_task_${taskIdHex}_turn_${currentTurn}`;
+    let hasSyncedGmail = false;
+
     this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, 'in_progress');
     try {
       // 1. Cập nhật status thành in_progress
@@ -428,8 +436,14 @@ export class TasksService {
       const systemPrompt = agent.system_prompt ? `### CHỈ THỊ CỦA AGENT:\n${agent.system_prompt}\n\n` : '';
       const customSkills = agent.custom_skills ? `### KỸ NĂNG TÙY CHỈNH:\n${agent.custom_skills}\n\n` : '';
       
-      const integrationsGate = await this.usersService.getExecutorIntegrationsGate(creatorHex);
-      const systemGuard = `### TÌNH TRẠNG KẾT NỐI ỨNG DỤNG (SYSTEM GUARD):\nNgười dùng có các trạng thái kết nối như sau. CHỈ sử dụng tool (hoặc lập kế hoạch action) cho những ứng dụng "ĐÃ liên kết". Nếu CHƯA liên kết, hãy từ chối yêu cầu và nhắc người dùng vào Cài đặt để kết nối:\n${integrationsGate.providerStatusString}\n\nLƯU Ý TỐI CAO: Bất kể bạn đang đóng vai trò gì (kể cả Trợ lý Tuyển sinh), nếu người dùng yêu cầu thao tác với ứng dụng bên thứ 3 (đọc email, gửi email, xem lịch...), bạn BẮT BUỘC PHẢI gọi công cụ delegate_to_integration ngay lập tức với mô tả chi tiết yêu cầu. TUYỆT ĐỐI KHÔNG ĐƯỢC yêu cầu người dùng tự copy/paste nội dung.\n\n`;
+      const integrationsGate = await this.usersService.getExecutorIntegrationsGate(creatorHex, taskDoc.permission_flags || {});
+      
+      const gmailGranted = integrationsGate.connections['gmail']?.gmail_action_granted;
+      const gmailStatusLine = gmailGranted 
+        ? '- AI ĐÃ ĐƯỢC CẤP QUYỀN thực thi hành động Gmail.' 
+        : '- AI CHƯA ĐƯỢC CẤP QUYỀN thực thi hành động Gmail (Cần hỏi xác nhận qua CF_ACTION_PLAN nếu cần thao tác).';
+
+      const systemGuard = `### TÌNH TRẠNG KẾT NỐI ỨNG DỤNG (SYSTEM GUARD):\nNgười dùng có các trạng thái kết nối như sau. CHỈ sử dụng tool (hoặc lập kế hoạch action) cho những ứng dụng "ĐÃ liên kết". Nếu CHƯA liên kết, hãy từ chối yêu cầu và nhắc người dùng vào Cài đặt để kết nối:\n${integrationsGate.providerStatusString}\n${gmailStatusLine}\n\nLƯU Ý TỐI CAO: Bất kể bạn đang đóng vai trò gì (kể cả Trợ lý Tuyển sinh), nếu người dùng yêu cầu thao tác với ứng dụng bên thứ 3 (đọc email, gửi email, xem lịch...), bạn BẮT BUỘC PHẢI gọi công cụ delegate_to_integration ngay lập tức với mô tả chi tiết yêu cầu. TUYỆT ĐỐI KHÔNG ĐƯỢC yêu cầu người dùng tự copy/paste nội dung.\n\n`;
 
       const taskModeLine = isDraftMode ? '### TASK MODE: DRAFT\n\n' : '';
       const taskReq = `${taskModeLine}### NHIỆM VỤ CỦA BẠN (TỪ NGƯỜI DÙNG):\n${lastUserMessage || 'Hãy xem tài liệu và xử lý yêu cầu.'}`;
@@ -456,7 +470,7 @@ export class TasksService {
           + 'Trả lời **đủ từng ý** user hỏi. Phần hiển thị cho user (sau thẻ `</thought>` nếu có) **chỉ tiếng Việt**.\n\n'
         : '';
 
-      const compiledPrompt = [
+      const systemContext = [
         systemPrompt,
         customSkills,
         systemGuard,
@@ -464,12 +478,14 @@ export class TasksService {
         memoryContext,
         ragPreamble,
         ragContext,
-        taskReq,
       ]
         .filter(Boolean)
         .join('\n\n');
 
+      const userMessage = lastUserMessage || 'Hãy xem tài liệu và xử lý yêu cầu.';
+
       // 6. Cập nhật compiled_prompt vào Database để lưu vết
+      const compiledPrompt = `${systemContext}\n\n### NHIỆM VỤ CỦA BẠN (TỪ NGƯỜI DÙNG):\n${userMessage}`;
       await this.taskModel.updateOne({ _id: taskDoc._id }, { $set: { compiled_prompt: compiledPrompt } });
 
       // 7. Gọi API tới AI_Core (session_id = thread_id để đa lượt checkpoint)
@@ -487,10 +503,40 @@ export class TasksService {
         memory_writer: 'Đang lưu trữ thông tin...',
       };
 
+
+
+      // BƯỚC 1: Khởi tạo Execution Record trong DB
+      // Nếu là lần đầu, push cả User Message (description) và Assistant Bubble
+      const pushBatch: any[] = [];
+      if (isFirstRun) {
+        pushBatch.push({
+          role: 'user',
+          content: (taskDoc.description || '').trim(),
+          createdAt: taskDoc.createdAt ?? new Date(),
+        });
+      }
+      pushBatch.push({
+        messageId: assistantMsgId,
+        role: 'assistant' as const,
+        content: '',
+        steps: ['Đang phân tích yêu cầu...'],
+        createdAt: new Date(),
+      });
+
+      await this.taskModel.updateOne(
+        { _id: taskDoc._id },
+        { 
+          $set: { status: 'in_progress' },
+          $push: { messages: { $each: pushBatch } } 
+        }
+      );
+
       const streamResult: unknown = await this.aiCoreService.chatWithAiStream(
-        compiledPrompt,
+        userMessage,
         creatorHex,
         sessionId,
+        taskDoc.status,
+        taskDoc.draft_payload || '',
         (event: Record<string, any>) => {
           if (event.type === 'status') {
             const node = event.node || '';
@@ -519,56 +565,97 @@ export class TasksService {
             fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskIdHex}`,hypothesisId:'H3',location:'Backend/src/module/ai-center/service/tasks.service.ts:511',message:'event_forward_to_ws_contains_reviewer_markers',data:{eventType:event?.type ?? '',node:event?.node ?? '',status:event?.status ?? '',chunkPreview:String(event.chunk).slice(0,220)},timestamp:Date.now()})}).catch(()=>{});
           }
           // #endregion
-          this.tasksGateway.emitTaskStream(workspaceIdStr, taskId, event);
+          // Strip Action Plan markers from stream chunks so user doesn't see them
+          if (event.type === 'chunk' && typeof event.chunk === 'string') {
+            event.chunk = event.chunk.replace(/<!--CF_ACTION_PLAN_START-->[\s\S]*?<!--CF_ACTION_PLAN_END-->/g, '');
+            // Also strip just the markers if they come in separate chunks
+            event.chunk = event.chunk.replace(/<!--CF_ACTION_PLAN_START-->|<!--CF_ACTION_PLAN_END-->/g, '');
+          }
+          if (event.type === 'tool' && event.tool === 'read_gmail_tool') {
+            hasSyncedGmail = true;
+          }
+          this.tasksGateway.emitTaskStream(workspaceIdStr, taskId, {
+            ...event,
+            messageId: assistantMsgId,
+          });
         },
-        integrationsGate.connections
+        integrationsGate.connections,
+        systemContext,
       );
       const result =
         typeof streamResult === 'string' ? streamResult : String(streamResult);
+
+      // --- BƯỚC KIỂM CHỨNG (VALIDATION) CỰC KỲ BẠO LỰC: ---
+      // Ép về string để quét từ khóa crash/lỗi hệ thống mà Python văng ra
+      const responseString = JSON.stringify(result);
+      if (
+        !result ||
+        result.startsWith('AI_Core Error') ||
+        result.startsWith('Lỗi hệ thống:') ||
+        responseString.includes('Traceback')
+      ) {
+        throw new Error(`AI Core bị crash hoặc trả về lỗi: ${result}`);
+      }
+
+      // --- LÀM SẠCH DỮ LIỆU (DATA SANITIZATION): Cắt bỏ log lỗi nội bộ ---
+      // Nếu AI trả kết quả hợp lệ nhưng lỡ dính thêm log lỗi ở cuối
+      let cleanResult = result;
+      if (cleanResult.includes('google.genai.errors.')) {
+        cleanResult = cleanResult.split('google.genai.errors.')[0].trim();
+      }
+
+      // --- TRÍCH XUẤT HÀNH ĐỘNG CẦN PHÊ DUYỆT (ACTION PLAN) ---
+
+      // Nếu sau khi cắt thì rỗng → throw error
+      if (!cleanResult.trim()) {
+        throw new Error('AI Core trả về kết quả rỗng sau khi làm sạch log lỗi.');
+      }
+
       // #region agent log
-      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-result:${taskIdHex}`,hypothesisId:'H4',location:'Backend/src/module/ai-center/service/tasks.service.ts:519',message:'result_before_db_persist',data:{resultLen:result.length,hasReviewMarkers:/PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(result),resultTail:result.slice(-260)},timestamp:Date.now()})}).catch(()=>{});
+      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-result:${taskIdHex}`,hypothesisId:'H4',location:'Backend/src/module/ai-center/service/tasks.service.ts:550',message:'result_before_db_persist',data:{resultLen:result.length,hasReviewMarkers:/PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(result),resultTail:result.slice(-260)},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
 
       // 8. Cập nhật trạng thái + lịch sử assistant
       const assistantBubble = {
+        messageId: assistantMsgId,
         role: 'assistant' as const,
-        content: result,
+        content: cleanResult,
         steps: Array.from(collectedSteps),
         createdAt: new Date(),
       };
+      
+      // ... logic update DB (giữ nguyên nhưng đảm bảo nằm trong try) ...
       const rawMsgs = (taskDoc.messages || []) as Array<{ role?: string }>;
       const legacyHydrate =
         rawMsgs.length === 0 && (taskDoc.description || '').trim().length > 0;
 
-      if (isDraftMode) {
-        // Parse action plan contract from AI_Core output.
-        const startIdx = result.indexOf(ACTION_PLAN_START);
-        const endIdx = result.indexOf(ACTION_PLAN_END, startIdx + ACTION_PLAN_START.length);
-        if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-          throw new Error(
-            `AI/Core draft output thiếu marker action plan (${ACTION_PLAN_START}...${ACTION_PLAN_END}).`,
-          );
-        }
-        const jsonText = result.slice(
-          startIdx + ACTION_PLAN_START.length,
-          endIdx,
-        );
-        let actionPlan: unknown = null;
+      const startIdx = cleanResult.indexOf(ACTION_PLAN_START);
+      const endIdx = cleanResult.indexOf(ACTION_PLAN_END, startIdx + ACTION_PLAN_START.length);
+      const hasActionPlan = startIdx !== -1 && endIdx !== -1 && endIdx > startIdx;
+
+      if (hasActionPlan) {
+        // Có action plan marker → xử lý draft/action plan flow
+        
+        const jsonText = hasActionPlan 
+          ? cleanResult.slice(startIdx + ACTION_PLAN_START.length, endIdx)
+          : '{}';
+        
+        let actionPlan: any = null;
         try {
-          actionPlan = JSON.parse(jsonText);
+          actionPlan = hasActionPlan ? JSON.parse(jsonText) : {};
         } catch (e) {
           throw new Error(`Parse JSON action plan thất bại: ${e instanceof Error ? e.message : String(e)}`);
         }
 
-        const userVisibleMessage = (
-          result.slice(0, startIdx) + result.slice(endIdx + ACTION_PLAN_END.length)
-        )
-          .replace(/\n{3,}/g, '\n\n')
-          .trim();
+        const userVisibleMessage = hasActionPlan
+          ? (cleanResult.slice(0, startIdx) + cleanResult.slice(endIdx + ACTION_PLAN_END.length))
+              .replace(/\n{3,}/g, '\n\n')
+              .trim()
+          : cleanResult;
 
-        const requiresHuman = Boolean((actionPlan as any)?.requires_human);
-        const nextStatus = requiresHuman ? 'waiting_human_input' : 'waiting_execute_approval';
-        const draftPayload = JSON.stringify(actionPlan);
+        const requiresHuman = Boolean(actionPlan?.requires_human);
+        const nextStatus = requiresHuman ? 'waiting_human_input' : (isDraftMode ? 'waiting_execute_approval' : 'completed');
+        const draftPayload = hasActionPlan ? JSON.stringify(actionPlan) : null;
 
         const draftAssistantBubble = {
           ...assistantBubble,
@@ -609,42 +696,29 @@ export class TasksService {
           taskId,
           nextStatus,
           userVisibleMessage,
+          assistantMsgId,
+          { draft_payload: draftPayload }
         );
         this.logger.log(`Task ${taskIdHex}: draft ready → ${nextStatus}`);
       } else {
-        // Execute mode: giữ luồng cũ.
-        if (legacyHydrate) {
-          await this.taskModel.updateOne(
-            { _id: taskDoc._id },
-            {
-              $set: {
-                status: 'completed',
-                result,
-                messages: [
-                  {
-                    role: 'user',
-                    content: (taskDoc.description || '').trim(),
-                    createdAt: taskDoc.createdAt ?? new Date(),
-                  },
-                  assistantBubble,
-                ],
-              },
+        // BƯỚC 2: Khi chạy xong, cập nhật lại nội dung cho chính bubble đó (Completed)
+        await this.taskModel.updateOne(
+          { _id: taskDoc._id, "messages.messageId": assistantMsgId },
+          {
+            $set: { 
+              status: 'completed', 
+              result: cleanResult,
+              "messages.$.content": cleanResult,
+              "messages.$.steps": Array.from(collectedSteps),
             },
-          );
-        } else {
-          await this.taskModel.updateOne(
-            { _id: taskDoc._id },
-            {
-              $set: { status: 'completed', result },
-              $push: { messages: assistantBubble },
-            },
-          );
-        }
+          },
+        );
         this.tasksGateway.emitTaskStatus(
           workspaceIdStr,
           taskId,
           'completed',
-          result,
+          cleanResult,
+          assistantMsgId,
         );
         try {
           await this.memoryFlowService.ingestTaskOutcome({
@@ -654,13 +728,18 @@ export class TasksService {
             taskId: taskDoc._id,
             status: 'completed',
             userPrompt: lastUserMessage || '',
-            assistantAnswer: result,
+            assistantAnswer: cleanResult,
             messages: currentMessages,
           });
         } catch (memErr) {
           this.memoryFlowService.logMemoryError(memErr, 'ingest_completed');
         }
         this.logger.log(`Task ${taskIdHex} hoàn thành thành công.`);
+      }
+
+      if (hasSyncedGmail) {
+        await this.usersService.updateGmailSyncTime(creatorHex);
+        this.logger.log(`Task ${taskIdHex}: Đã cập nhật last_sync_at cho Gmail.`);
       }
 
     } catch (error) {
@@ -672,38 +751,19 @@ export class TasksService {
         content: failText,
         createdAt: new Date(),
       };
-      const rawMsgs = (taskDoc.messages || []) as Array<{ role?: string }>;
-      const legacyHydrate =
-        rawMsgs.length === 0 && (taskDoc.description || '').trim().length > 0;
 
-      if (legacyHydrate) {
-        await this.taskModel.updateOne(
-          { _id: taskDoc._id },
-          {
-            $set: {
-              status: 'failed',
-              result: failText,
-              messages: [
-                {
-                  role: 'user',
-                  content: (taskDoc.description || '').trim(),
-                  createdAt: taskDoc.createdAt ?? new Date(),
-                },
-                assistantBubble,
-              ],
-            },
+      // Cập nhật bubble đang Processing thành Failed
+      await this.taskModel.updateOne(
+        { _id: taskDoc._id, "messages.messageId": assistantMsgId },
+        {
+          $set: { 
+            status: 'failed', 
+            result: failText,
+            "messages.$.content": failText,
           },
-        );
-      } else {
-        await this.taskModel.updateOne(
-          { _id: taskDoc._id },
-          {
-            $set: { status: 'failed', result: failText },
-            $push: { messages: assistantBubble },
-          },
-        );
-      }
-      this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, 'failed', errorMessage);
+        },
+      );
+      this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, 'failed', errorMessage, assistantMsgId);
       if (!isDraftMode) {
         try {
           await this.memoryFlowService.ingestTaskOutcome({
@@ -811,6 +871,8 @@ export class TasksService {
         query,
         creatorHex,
         sessionId,
+        taskDoc.status,
+        taskDoc.draft_payload || '',
         () => {
           /* Không stream chunk xuống FE trong vòng human-answer MVP */
         },
@@ -939,16 +1001,27 @@ export class TasksService {
         t.status === 'waiting_execute_approval';
 
       const nextRunAt = (() => {
-        // MVP: chỉ phân biệt daily vs weekly_tue (dò theo schedule_cron).
-        const weeklyLike =
-          scheduleCron.includes('weekly') ||
-          scheduleCron.includes('tuesday') ||
-          scheduleCron.includes('t3') ||
-          scheduleCron.includes('thứ 3') ||
-          scheduleCron.endsWith(' 3') ||
-          scheduleCron.endsWith('* 3') ||
-          scheduleCron.includes(' 3 ');
-        return addDays(t.next_run_at ?? now, weeklyLike ? 7 : 1);
+        if (scheduleCron && scheduleCron.trim() !== '') {
+          try {
+            const interval = cronParser.parseExpression(scheduleCron);
+            return interval.next().toDate();
+          } catch (e) {
+            this.logger.warn(
+              `[Scheduler] Không parse được cron "${scheduleCron}" cho task ${taskIdHex}. Dùng fallback.`,
+            );
+            // Fallback: chỉ phân biệt daily vs weekly_tue (dò theo schedule_cron).
+            const weeklyLike =
+              scheduleCron.includes('weekly') ||
+              scheduleCron.includes('tuesday') ||
+              scheduleCron.includes('t3') ||
+              scheduleCron.includes('thứ 3') ||
+              scheduleCron.endsWith(' 3') ||
+              scheduleCron.endsWith('* 3') ||
+              scheduleCron.includes(' 3 ');
+            return addDays(t.next_run_at ?? now, weeklyLike ? 7 : 1);
+          }
+        }
+        return null; // One-off: không có lần chạy tiếp theo
       })();
 
       await this.taskModel.updateOne(
@@ -956,6 +1029,7 @@ export class TasksService {
         {
           $set: {
             next_run_at: nextRunAt,
+            schedule_enabled: nextRunAt !== null, // Tắt lịch nếu là One-off (không có lần chạy sau)
             // Nếu đang chờ user, không reset/xoá để tránh mất dữ liệu.
             ...(isWaiting
               ? {}
@@ -964,7 +1038,7 @@ export class TasksService {
                   draft_payload: null,
                   result: null,
                   compiled_prompt: null,
-                  messages: [],
+                  // Không reset messages để giữ lịch sử các lần chạy trước (Execution History)
                 }),
           },
         },
@@ -1149,8 +1223,10 @@ export class TasksService {
     // Ghi log vào messages
     const workspaceIdStr = this.idHex(taskDoc.workspace_id);
     const updatedMessages = Array.isArray(taskDoc.messages) ? [...taskDoc.messages] : [];
+    const actionMsgId = `msg_action_${taskId}_idx_${body.actionIndex}`;
     
     updatedMessages.push({
+      messageId: actionMsgId,
       role: 'assistant',
       content: resultMsg,
       createdAt: new Date(),
@@ -1161,26 +1237,37 @@ export class TasksService {
     // we should track completed actions. For now, we just append the success message.
     // If all actions are done, we could set status = 'completed'. Let's keep it simple.
 
+    // --- BƯỚC 1: Đánh dấu hành động đã giải quyết (is_resolved) ---
+    actionPlan.actions[body.actionIndex] = { 
+      ...action, 
+      is_resolved: true,
+      decision: body.decision,
+      completedAt: new Date()
+    };
+
+    // --- BƯỚC 2: Kiểm tra xem đã xử lý hết tất cả các đề xuất chưa ---
+    const totalActions = actionPlan.actions.length;
+    const resolvedActions = actionPlan.actions.filter((a: any) => a.is_resolved).length;
+
+    let nextStatus: TaskStatus = taskDoc.status;
+    if (resolvedActions === totalActions) {
+      nextStatus = 'completed';
+      this.logger.log(`Task ${taskId}: Đã xử lý xong ${resolvedActions}/${totalActions} hành động. Đổi trạng thái sang COMPLETED.`);
+    }
+
     await this.taskModel.updateOne(
       { _id: taskDoc._id },
       { 
         $set: { 
           messages: updatedMessages,
-          // Note: you might want to update draft_payload to mark this action as completed
-          // but ActionCards handles completed state locally. If page reloads, it might show again.
-          // To fix this, we can remove the action or mark it done in draft_payload.
+          draft_payload: JSON.stringify(actionPlan),
+          status: nextStatus
         } 
       }
     );
 
-    // Xóa action khỏi draft_payload để không hiện lại
-    actionPlan.actions[body.actionIndex] = { ...action, completed: true };
-    await this.taskModel.updateOne(
-      { _id: taskDoc._id },
-      { $set: { draft_payload: JSON.stringify(actionPlan) } }
-    );
-
-    this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, taskDoc.status, resultMsg);
+    // --- BƯỚC 3: Bắn WebSocket qua Frontend ---
+    this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, nextStatus, resultMsg, actionMsgId);
 
     const updated = await this.taskModel.findById(taskDoc._id).lean().exec();
     return updated as object;
@@ -1232,6 +1319,7 @@ export class TasksService {
     taskId: string,
     workspaceId: string,
     content: string,
+    messageId?: string,
   ): Promise<object> {
     await this.workspacesService.findOne(userId, workspaceId);
     const wid = toObjectId(workspaceId);
@@ -1247,10 +1335,13 @@ export class TasksService {
       'completed',
       'failed',
       'waiting_approval',
+      'waiting_human_input',
+      'waiting_execute_approval',
+      'in_progress', // Cho phép nhắn tiếp khi AI đang chạy (hoặc bị kẹt)
     ];
     if (!allowed.includes(doc.status)) {
       throw new BadRequestException(
-        'Chỉ có thể nhắn tiếp khi task đã xong, lỗi hoặc chờ duyệt.',
+        `Chỉ có thể nhắn tiếp khi task đã xong, lỗi hoặc chờ duyệt (Hiện tại: ${doc.status}).`,
       );
     }
     const trimmed = content.trim();
@@ -1266,6 +1357,7 @@ export class TasksService {
         $set: { status: 'scheduled' },
         $push: {
           messages: {
+            messageId,
             role: 'user',
             content: trimmed,
             createdAt: new Date(),
@@ -1314,17 +1406,16 @@ export class TasksService {
     userId: string,
     taskId: string,
     workspaceId: string,
-  ): Promise<object> {
+  ): Promise<TaskDocument> {
     await this.workspacesService.findOne(userId, workspaceId);
     const wid = toObjectId(workspaceId);
     const doc = await this.taskModel
       .findOne({ _id: toObjectId(taskId), workspace_id: wid })
-      .lean()
       .exec();
     if (!doc) {
       throw new NotFoundException('Không tìm thấy task');
     }
-    return doc as object;
+    return doc;
   }
 
   async update(
@@ -1387,5 +1478,40 @@ export class TasksService {
       throw new NotFoundException('Không tìm thấy task');
     }
     return 'OK';
+  }
+
+  /**
+   * Cấp quyền cho AI thực thi tool (Human-in-the-loop).
+   */
+  async grantPermission(
+    userId: string,
+    taskId: string,
+    workspaceId: string,
+    provider: string,
+  ) {
+    const task = await this.findOne(userId, taskId, workspaceId);
+    
+    const flags = task.permission_flags || {};
+    if (provider === 'gmail') {
+      flags['gmail_action_granted'] = true;
+    }
+    
+    await this.taskModel.updateOne(
+      { _id: task._id },
+      { 
+        $set: { 
+          permission_flags: flags,
+          // Không set in_progress ở đây, để appendUserMessage set sang scheduled
+        } 
+      }
+    );
+
+    // Kích hoạt lại luồng AI với tin nhắn cuối của user để AI chạy tiếp với quyền mới
+    return this.appendUserMessage(
+      userId,
+      taskId,
+      workspaceId,
+      `[Hệ thống: Người dùng đã bấm nút ĐỒNG Ý cấp quyền truy cập ${provider}]`
+    );
   }
 }

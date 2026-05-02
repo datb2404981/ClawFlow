@@ -16,8 +16,11 @@ export function TaskNewPage() {
   
   // Schedule state
   const [scheduleOn, setScheduleOn] = useState(false)
-  const [cycle, setCycle] = useState('daily')
+  const [cycle, setCycle] = useState('once')
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
   const [time, setTime] = useState('09:00')
+  const [timeUnit, setTimeUnit] = useState('minutes')
+  const [interval, setInterval] = useState(5)
   const [schedulePopupOpen, setSchedulePopupOpen] = useState(false)
   
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -44,29 +47,31 @@ export function TaskNewPage() {
 
   /** Build a simple cron-like string from UI selections */
   const buildScheduleCron = () => {
-    const [hh, mm] = time.split(':')
-    if (cycle === 'daily') return `${mm} ${hh} * * *`
-    if (cycle === 'weekly') {
-      const dayMap: Record<string, string> = { T2: '1', T3: '2', T4: '3', T5: '4', T6: '5', T7: '6', CN: '0' }
-      const days = selectedDays.map((d) => dayMap[d] ?? '1').join(',') || '1'
-      return `${mm} ${hh} * * ${days}`
+    if (cycle === 'recurring') {
+      const val = interval || 5
+      if (timeUnit === 'minutes') return `*/${val} * * * *`
+      if (timeUnit === 'hours') return `0 */${val} * * *`
+      if (timeUnit === 'days') return `0 0 */${val} * *`
     }
-    if (cycle === 'monthly') {
-      const days = selectedMonthDays.length > 0 ? selectedMonthDays.join(',') : '1'
-      return `${mm} ${hh} ${days} * *`
-    }
-    return `${mm} ${hh} * * *`
+    return '' // One-off
   }
 
   /** Compute the next run time from now */
   const computeNextRunAt = () => {
-    const [hh, mm] = time.split(':').map(Number)
     const now = new Date()
-    const next = new Date(now)
-    next.setHours(hh, mm, 0, 0)
-    // If the time has already passed today, schedule for tomorrow
-    if (next <= now) next.setDate(next.getDate() + 1)
-    return next.toISOString()
+    if (cycle === 'recurring') {
+      const val = interval || 5
+      if (timeUnit === 'minutes') return new Date(now.getTime() + val * 60000).toISOString()
+      if (timeUnit === 'hours') return new Date(now.getTime() + val * 3600000).toISOString()
+      if (timeUnit === 'days') return new Date(now.getTime() + val * 86400000).toISOString()
+    } else {
+      // one-off
+      const [hh, mm] = time.split(':').map(Number)
+      const next = new Date(startDate)
+      next.setHours(hh, mm, 0, 0)
+      return next.toISOString()
+    }
+    return now.toISOString()
   }
 
   const onSubmit = async (e?: React.FormEvent) => {
@@ -203,74 +208,65 @@ export function TaskNewPage() {
                             onChange={(e) => setCycle(e.target.value)}
                             className="w-full appearance-none rounded-xl bg-slate-100 py-2.5 pl-4 pr-10 text-xs font-bold text-slate-700 outline-none"
                           >
-                            <option value="daily">Hàng ngày</option>
-                            <option value="weekly">Hàng tuần</option>
-                            <option value="monthly">Hàng tháng</option>
+                            <option value="once">Một lần duy nhất</option>
+                            <option value="recurring">Lặp lại định kỳ</option>
                           </select>
                           <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
                         </div>
 
-                        {cycle === 'weekly' && (
-                          <div>
-                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày trong tuần</div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((d) => {
-                                const active = selectedDays.includes(d)
-                                return (
-                                  <button
-                                    key={d}
-                                    type="button"
-                                    onClick={() => toggleDay(d)}
-                                    className={[
-                                      'flex h-8 w-8 items-center justify-center rounded-lg text-[11px] font-bold transition-all',
-                                      active
-                                        ? 'bg-blue-600 text-white shadow-sm'
-                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                                    ].join(' ')}
-                                  >
-                                    {d}
-                                  </button>
-                                )
-                              })}
+                        {cycle === 'once' ? (
+                          <div className="space-y-3">
+                            <div className="relative">
+                              <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="w-full rounded-xl bg-slate-100 py-2.5 px-4 text-xs font-bold text-slate-700 outline-none"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="time"
+                                value={time}
+                                onChange={(e) => setTime(e.target.value)}
+                                className="flex-1 rounded-xl bg-slate-100 py-2.5 px-4 text-xs font-bold text-slate-700 outline-none"
+                              />
+                              <Clock3 className="h-4 w-4 text-slate-400" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={1}
+                                value={interval}
+                                onChange={(e) => setInterval(parseInt(e.target.value) || 1)}
+                                className="w-16 rounded-xl bg-slate-100 py-2.5 text-center text-xs font-bold text-slate-700 outline-none"
+                              />
+                              <div className="relative flex-1">
+                                <select
+                                  value={timeUnit}
+                                  onChange={(e) => setTimeUnit(e.target.value)}
+                                  className="w-full appearance-none rounded-xl bg-slate-100 py-2.5 pl-4 pr-10 text-xs font-bold text-slate-700 outline-none"
+                                >
+                                  <option value="minutes">Phút</option>
+                                  <option value="hours">Giờ</option>
+                                  <option value="days">Ngày</option>
+                                </select>
+                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                              </div>
+                            </div>
+                            <div className="rounded-lg bg-blue-50 px-3 py-2">
+                              <p className="text-[11px] font-medium text-blue-700">
+                                ⏱ Lặp lại mỗi <span className="font-bold">{interval}</span>{' '}
+                                <span className="font-bold">
+                                  {timeUnit === 'minutes' ? 'phút' : timeUnit === 'hours' ? 'giờ' : 'ngày'}
+                                </span>
+                              </p>
                             </div>
                           </div>
                         )}
-
-                        {cycle === 'monthly' && (
-                          <div>
-                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày trong tháng</div>
-                            <div className="grid grid-cols-7 gap-1">
-                              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
-                                const active = selectedMonthDays.includes(d)
-                                return (
-                                  <button
-                                    key={d}
-                                    type="button"
-                                    onClick={() => toggleMonthDay(d)}
-                                    className={[
-                                      'flex aspect-square items-center justify-center rounded text-[10px] font-bold transition-all',
-                                      active
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100',
-                                    ].join(' ')}
-                                  >
-                                    {d}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="time"
-                            value={time}
-                            onChange={(e) => setTime(e.target.value)}
-                            className="flex-1 rounded-xl bg-slate-100 py-2.5 px-4 text-xs font-bold text-slate-700 outline-none"
-                          />
-                          <Clock3 className="h-4 w-4 text-slate-400" />
-                        </div>
                       </div>
                     </div>
                   )}

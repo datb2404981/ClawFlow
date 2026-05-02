@@ -1,8 +1,4 @@
-"""Email Analyzer — Sử dụng Gemini 1.5 Flash để phân tích email.
-
-Hybrid approach:
-- Tóm tắt nhanh MỌI email
-- Phân tích sâu + soạn draft chỉ cho email "High Actionable"
+"""Email Analyzer — Sử dụng Google Gemini API để phân tích email.
 """
 from __future__ import annotations
 
@@ -14,27 +10,24 @@ from datetime import datetime, timezone, timedelta
 from langchain_core.messages import HumanMessage, SystemMessage
 
 
-def _get_analyzer():
-    """Lazy-init Gemini model — chỉ tạo khi thực sự cần."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        api_key = os.getenv("GOOGLE_GENAI_API_KEY", "")
-    if not api_key:
-        raise RuntimeError(
-            "Thiếu biến môi trường GEMINI_API_KEY hoặc GOOGLE_GENAI_API_KEY. "
-            "Vui lòng thêm API key vào file .env của AI_Core."
-        )
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    return ChatGoogleGenerativeAI(
-        model="gemini-3.1-flash-lite-preview",
-        google_api_key=api_key,
-        temperature=0.2,
-    )
-
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from Utils.gemini_client import gemini_client
 
 # Lấy timezone Việt Nam
 _VN_TZ = timezone(timedelta(hours=7))
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+)
+async def _invoke_analyzer(messages, system_instruction):
+    return await gemini_client.generate_content_async(
+        model="gemini-3.1-flash-lite-preview",
+        contents=messages,
+        system_instruction=system_instruction,
+        temperature=0.2
+    )
 
 SYSTEM_PROMPT_EMAIL_ANALYZER = """Bạn là một Trợ lý phân tích email thông minh. Nhiệm vụ của bạn:
 
@@ -107,6 +100,7 @@ def _extract_email_address(from_field: str) -> str:
     return from_field.strip()
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 async def analyze_emails(raw_email_text: str, user_name: str = "") -> dict:
     """Phân tích email bằng Gemini Flash.
 
@@ -117,8 +111,8 @@ async def analyze_emails(raw_email_text: str, user_name: str = "") -> dict:
     Returns:
         dict với keys: summaries, actions, raw_response
     """
-    analyzer = _get_analyzer()
-
+    # Logic gọi AI Gemini API của em nằm ở đây
+    print("Đang phân tích email...")
     current_date = datetime.now(_VN_TZ).strftime("%d/%m/%Y %H:%M")
     system_prompt = SYSTEM_PROMPT_EMAIL_ANALYZER.format(current_date=current_date)
 
@@ -126,13 +120,11 @@ async def analyze_emails(raw_email_text: str, user_name: str = "") -> dict:
     if user_name:
         user_prompt += f"\n\nTên người dùng (để ký tên reply): {user_name}"
 
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt),
-    ]
+    messages = [HumanMessage(content=user_prompt)]
 
-    response = await analyzer.ainvoke(messages)
-    raw = response.content.strip()
+    response = await _invoke_analyzer(messages, system_prompt)
+    # Lấy content ra từ Gemini response
+    raw = (response.text or "").strip()
 
     # Parse JSON từ response
     # Gemini có thể wrap trong ```json ... ```

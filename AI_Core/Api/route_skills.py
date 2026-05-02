@@ -2,24 +2,19 @@ import json
 import re
 
 from fastapi import APIRouter
-from langchain_ollama import ChatOllama
-
+from Utils.gemini_client import gemini_client
 from Api.schemas.route_schema import RouteSkillsRequest, RouteSkillsResponse
-from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
 
 router = APIRouter()
 
 @router.post("/route_skills", response_model=RouteSkillsResponse)
 async def route_skills(req: RouteSkillsRequest):
     try:
-        model_name = OLLAMA_MODEL
-        base_url = OLLAMA_BASE_URL
+        model_name = "gemini-3.1-flash-lite-preview"
 
         # Tránh lỗi nếu danh sách skill rỗng
         if not req.available_skills:
             return RouteSkillsResponse(status="success", selected_skill_ids=[])
-        
-        llm = ChatOllama(model=model_name, base_url=base_url)
         
         skills_str = "\n".join([f"- ID: {s.id}\n  Tên: {s.title}\n  Mô tả: {s.description}" for s in req.available_skills])
         
@@ -37,8 +32,12 @@ Tuyệt đối không giải thích thêm. Nếu không cần công cụ nào, t
 ĐỊNH DẠNG BẮT BUỘC (Chỉ chứa JSON, không có markdown):
 ["id1", "id2"]
 """
-        response = await llm.ainvoke(prompt)
-        content = response.content.strip()
+        response = await gemini_client.generate_content_async(
+            model=model_name,
+            contents=[prompt],
+            temperature=0.1
+        )
+        content = response.text or ""
         
         # Parse JSON: Xóa các markdown blocks nếu có
         content = re.sub(r'```json\n|\n```|```', '', content).strip()

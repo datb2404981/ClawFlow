@@ -21,6 +21,21 @@ class ChatRequest(BaseModel):
       description="Integration connection states and tokens from Backend"
     )
 
+    task_status: Optional[str] = Field(
+        default="running",
+        description="Current status of the task (e.g. waiting_execute_approval)"
+    )
+
+    draft_payload: Optional[str] = Field(
+        default="",
+        description="JSON string of the current draft/action plan"
+    )
+
+    system_context: Optional[str] = Field(
+        default=None,
+        description="System instructions, skills, and context from Backend"
+    )
+
 
 # 2. Định nghĩa Contract Đầu ra
 class ChatResponse(BaseModel):

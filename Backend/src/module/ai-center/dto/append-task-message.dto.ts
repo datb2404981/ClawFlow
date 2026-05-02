@@ -8,4 +8,7 @@ export class AppendTaskMessageDto {
   @MinLength(1)
   @MaxLength(APPEND_TASK_MESSAGE_MAX_LENGTH)
   content!: string;
+
+  @IsString()
+  messageId?: string;
 }

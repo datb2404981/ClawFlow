@@ -1,14 +1,14 @@
 """Leader Agent node - Trưởng nhóm điều phối."""
-from __future__ import annotations
-
 import re
-
+import uuid
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from Agents.leader_agent import leader_model, SYSTEM_PROMPT_LEADER
+from Agents.leader_agent import GEMINI_MODEL_LEADER, SYSTEM_PROMPT_LEADER
 from Tools.tool_browser import tool_browsers
 from Tools.tool_delegate import delegate_to_integration
+from Tools.tool_gmail import read_gmail_tool
+from Utils.gemini_client import gemini_client
 
 from Utils.intent import (
     detect_about_user_query,
@@ -128,14 +128,13 @@ def _user_question_for_fast_path(state: ClawFlowState) -> str:
 
 
 def _trim_history(messages: list) -> list:
-    """Chuẩn bị history gọn cho Llama 8B:
-    1) Bỏ SystemMessage cũ (sẽ gắn prompt mới ở ngoài).
+    """Chuẩn bị history gọn:
+    1) Bỏ SystemMessage cũ.
     2) Bỏ message của memory_agent & memory tool.
-    3) Giữ HumanMessage, AIMessage text thuần.
-    4) Với tool round-trip (AIMessage tool_calls + ToolMessage): chỉ giữ khi thuộc về
-       HumanMessage CUỐI CÙNG (turn đang xử lý). Các round-trip cũ → bỏ để tránh
-       nhồi context Tavily qua nhiều turn.
-    5) Cắt cửa sổ: chỉ giữ HISTORY_WINDOW HumanMessage gần nhất kèm AIMessage đi sau.
+    3) Với tool round-trip (AIMessage tool_calls + ToolMessage): chỉ giữ khi thuộc về
+       HumanMessage CUỐI CÙNG (turn đang xử lý).
+    4) ĐẶC BIỆT: Bỏ các AIMessage cũ có chứa 【DỮ LIỆU THẬT TỪ API】 để tránh AI bị "ám ảnh" 
+       bởi kết quả email cũ khi user đã chuyển sang câu hỏi khác.
     """
     cleaned: list = []
     for m in messages:
@@ -155,16 +154,22 @@ def _trim_history(messages: list) -> list:
 
     pruned: list = []
     for i, m in enumerate(cleaned):
-        if isinstance(m, ToolMessage):
+        # Giữ lại các ToolMessage và AIMessage(tool_calls) CHỈ nễu chúng thuộc turn cuối
+        if isinstance(m, ToolMessage) or (isinstance(m, AIMessage) and getattr(m, "tool_calls", None)):
             if i > last_human_idx:
                 pruned.append(m)
             continue
-        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
-            if i > last_human_idx:
-                pruned.append(m)
-            continue
+        
+        # Nếu là AIMessage thông thường của turn cũ mà chứa dữ liệu API -> Bỏ qua
+        if isinstance(m, AIMessage) and i < last_human_idx:
+            content = str(getattr(m, "content", ""))
+            if "【DỮ LIỆU THẬT TỪ API" in content or "📧 **Tóm tắt email" in content:
+                print(f"[leader] Trimming old API result message at index {i}")
+                continue
+
         pruned.append(m)
 
+    # Cắt cửa sổ HISTORY_WINDOW
     human_indices = [i for i, m in enumerate(pruned) if isinstance(m, HumanMessage)]
     if len(human_indices) > HISTORY_WINDOW:
         cut_from = human_indices[-HISTORY_WINDOW]
@@ -405,6 +410,7 @@ async def leader_agent_node(state: ClawFlowState, config: RunnableConfig):
         f"rules={'Y' if thread_rules else 'N'} | "
         f"gmail_connected={'Y' if integrations.get('gmail', {}).get('connected') else 'N'} "
         f"has_token={'Y' if integrations.get('gmail', {}).get('access_token') else 'N'} | "
+        f"gmail_granted={'Y' if integrations.get('gmail', {}).get('gmail_action_granted') else 'N'} | "
         f"has_integration_result={'Y' if has_integration_result else 'N'}"
     )
 
@@ -449,15 +455,53 @@ async def leader_agent_node(state: ClawFlowState, config: RunnableConfig):
         )
         return {"messages": [fast_msg]}
 
-    prompt = SYSTEM_PROMPT_LEADER
-    if core_profile or thread_rules:
-        prompt += "\n\n[HỒ SƠ TỪ THỦ THƯ - BẮT BUỘC ĐỌC KỸ]"
-        if core_profile:
-            prompt += f"\n• Hồ sơ người dùng: {core_profile}"
-        if thread_rules:
-            prompt += f"\n• Luật riêng phòng này: {thread_rules}"
+    # ━━━ KIỂM TRA QUYỀN TRUY CẬP GMAIL (HUMAN-IN-THE-LOOP) ━━━
+    # Nếu user muốn đọc/gửi mail nhưng chưa được cấp quyền qua Action Card (gmail_action_granted)
+    # thì CHỈ được phép hỏi xin phép, KHÔNG được gọi tool.
+    gmail_granted = integrations.get("gmail", {}).get("gmail_action_granted", False)
+    email_keywords = ["mail", "email", "gmail", "thư", "hộp thư", "inbox", "đọc mail", "gửi mail"]
+    user_asking_email = any(kw in user_text.lower() for kw in email_keywords)
+    
+    if user_asking_email and not gmail_granted:
+        print("[leader] GMAIL_PERMISSION_REQUIRED → Trả câu xin phép (Action Plan format)")
+        permission_msg = AIMessage(
+            content=(
+                "Dạ, em thấy anh muốn thao tác với Gmail. Để bảo mật, anh vui lòng xác nhận "
+                "cho phép em truy cập vào hộp thư của anh nhé! "
+                "(Anh có thể bấm nút **Đồng ý** ở thông báo phía dưới ạ).\n\n"
+                '<!--CF_ACTION_PLAN_START-->{"requires_human": true, "actions": [{"type": "request_permission", "label": "Đồng ý truy cập Gmail"}]}<!--CF_ACTION_PLAN_END-->'
+            ),
+            additional_kwargs={"source_agent": "leader_agent"},
+        )
+        return {"messages": [permission_msg]}
 
-    messages = [SystemMessage(content=prompt)] + valid_history
+    # Bắt đầu xây dựng Prompt
+    # 1. System Prompt cứng từ Python
+    prompt_parts = [SYSTEM_PROMPT_LEADER]
+    
+    # 2. System Context mềm từ NestJS (Skills, RAG, System Guard, etc.)
+    system_context = state.get("system_context")
+    if system_context:
+        prompt_parts.append(system_context)
+
+    # 3. Trạng thái Task & Draft
+    task_status = state.get("task_status", "running")
+    draft_payload = state.get("draft_payload", "")
+    
+    status_block = f"[TRẠNG THÁI HỆ THỐNG]\n• Task Status: {task_status}"
+    if task_status == "waiting_execute_approval":
+        status_block += f"\n• Draft Data: {draft_payload}"
+    prompt_parts.append(status_block)
+
+    # 4. Profile & Rules (nếu chưa có trong system_context)
+    if not system_context:
+        if core_profile:
+            prompt_parts.append(f"[HỒ SƠ NGƯỜI DÙNG]\n{core_profile}")
+        if thread_rules:
+            prompt_parts.append(f"[LUẬT RIÊNG PHÒNG CHAT]\n{thread_rules}")
+
+    combined_system_prompt = "\n\n".join(prompt_parts)
+    messages = [SystemMessage(content=combined_system_prompt)] + valid_history
 
     # ━━━ BYPASS: Có kết quả Integration → KHÔNG gọi LLM, trả thẳng cho user ━━━
     # Qwen 7B quá yếu: bịa nội dung, viết tiếng Trung, không tuân thủ prompt.
@@ -488,40 +532,37 @@ async def leader_agent_node(state: ClawFlowState, config: RunnableConfig):
         return {"messages": [bypass_msg], "has_bypassed_integration": True}
 
     active_tools = list(tool_browsers)
-
-    # CHỈ gắn delegate khi chưa có integration result (luôn true ở đây do bypass ở trên)
+    from Tools.tool_gmail_send import draft_gmail_tool
+    # Nạp trực tiếp tool cho LLM tự chọn
+    active_tools.append(read_gmail_tool)
+    active_tools.append(draft_gmail_tool)
     active_tools.append(delegate_to_integration)
 
-    leader_agent = leader_model.bind_tools(active_tools)
-    response = await leader_agent.ainvoke(messages)
+    # Gọi Gemini API trực tiếp thay vì qua LangChain Ollama
+    gemini_resp = await gemini_client.generate_content_async(
+        model=GEMINI_MODEL_LEADER,
+        contents=messages,
+        tools=active_tools,
+        temperature=0.1
+    )
 
-    # ━━━ RESCUE: Qwen viết tool call bằng text → chuyển thành tool_call thật ━━━
+    # Chuyển đổi phản hồi của Gemini về AIMessage để giữ tương thích với Graph
+    content = gemini_resp.text or ""
+    tool_calls = []
+    
+    if gemini_resp.candidates and gemini_resp.candidates[0].content.parts:
+        for part in gemini_resp.candidates[0].content.parts:
+            if part.function_call:
+                tool_calls.append({
+                    "name": part.function_call.name,
+                    "args": part.function_call.args,
+                    "id": f"call_{uuid.uuid4().hex[:12]}"
+                })
+    
+    response = AIMessage(content=content, tool_calls=tool_calls)
+
+    # ━━━ RESCUE: Chuyển đổi text tool call nếu có ━━━
     _rescue_text_tool_call(response)
-
-    # ━━━ FAILSAFE: User yêu cầu đọc email nhưng Qwen không gọi tool → FORCE ━━━
-    if not response.tool_calls:
-        # Lấy câu hỏi gốc của user
-        user_q = ""
-        for m in reversed(valid_history):
-            if isinstance(m, HumanMessage):
-                user_q = str(getattr(m, "content", "")).lower()
-                break
-        
-        # Kiểm tra xem user có yêu cầu liên quan email/integration không
-        email_keywords = ["mail", "email", "gmail", "thư", "hộp thư", "inbox", "đọc mail", "gửi mail"]
-        integrations = config.get("configurable", {}).get("integrations", {})
-        gmail_connected = integrations.get("gmail", {}).get("connected", False)
-        
-        if gmail_connected and any(kw in user_q for kw in email_keywords):
-            import uuid as _uuid
-            call_id = f"call_{_uuid.uuid4().hex[:12]}"
-            response.tool_calls = [{
-                "id": call_id,
-                "name": "delegate_to_integration",
-                "args": {"task_description": "Đọc email mới nhất trong hộp thư"},
-            }]
-            response.content = ""
-            print(f"[leader] FAILSAFE: user hỏi email nhưng Qwen không gọi tool → force delegate")
 
     # ━━━ QUAN TRỌNG: Khi có tool_call → XÓA text content ━━━
     # Qwen luôn viết text kèm tool_call ("sẽ kiểm tra... đã kiểm tra... không phát hiện")
@@ -557,7 +598,7 @@ async def leader_agent_node(state: ClawFlowState, config: RunnableConfig):
         response.content = sanitize_assistant_text_keep_thought(response.content)
         # Loại bỏ markers nội bộ khỏi output hiển thị cho user
         response.content = _clean_integration_markers(response.content)
-        # Loại bỏ tool call giả do Qwen viết bằng text
+        # Loại bỏ tool call giả nếu model viết bằng text
         response.content = _strip_fake_tool_calls(response.content)
 
     if not response.content.strip() and not response.tool_calls:

@@ -49,9 +49,15 @@ def after_writer_router(state: ClawFlowState):
 
 def leader_router(state: ClawFlowState):
     last = state["messages"][-1]
+    content = str(getattr(last, "content", ""))
+    
+    # Kiểm tra xem Đội trưởng có đang đòi cấp quyền không (Action Plan format)
+    if "request_permission" in content or "requires_human" in content:
+        # Nếu có, BẺ LÁI THẲNG VỀ TRẠM CUỐI (END)
+        return END
+
     if getattr(last, "tool_calls", None):
         return "tools"
-    content = str(getattr(last, "content", ""))
     if "Hãy viết" in content or "viết báo cáo" in content.lower():
         return "content_agent"
     if _last_turn_has_workspace_rag(state):

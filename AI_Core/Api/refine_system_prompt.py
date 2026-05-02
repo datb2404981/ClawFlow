@@ -7,19 +7,7 @@ from Api.schemas.refine_system_prompt_schema import (
     RefineSystemPromptResponse,
 )
 from fastapi import APIRouter, HTTPException
-from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
-
-router = APIRouter()
-
-# Một lần cho cả process (tương tự leader_agent.py)
-_refine_model = init_chat_model(
-    model=OLLAMA_MODEL,
-    model_provider="ollama",
-    base_url=OLLAMA_BASE_URL,
-    temperature=0.7,
-)
+from Utils.gemini_client import gemini_client
 
 # Vai trò + quy tắc; input thô gửi riêng HumanMessage để tránh lặp placeholder gây lệch model
 SYSTEM_REFINER = """Bạn là 'ClawFlow Refine System Prompt' — chuyên tối ưu system prompt cho ứng dụng.
@@ -43,52 +31,28 @@ Trả lời duy nhất: nội dung system prompt sau khi tối ưu (một văn b
 """.strip()
 
 
-def _message_content_to_str(content: str | list[str] | list[Any] | None) -> str:
-    """AIMessage / provider có thể trả content: str, hoặc list (tool/multimodal)."""
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        out: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                out.append(block)
-            elif isinstance(block, dict):
-                t = block.get("text")
-                if isinstance(t, str):
-                    out.append(t)
-                elif t is not None:
-                    out.append(str(t))
-            else:
-                out.append(str(block))
-        return "\n".join(s.strip() for s in out if s)
-    return str(content)
 
 
-def _extract_text_from_result(msg: BaseMessage) -> str:
-    if isinstance(msg, AIMessage):
-        return _message_content_to_str(msg.content)
-    c = getattr(msg, "content", None)
-    if c is not None:
-        return _message_content_to_str(c)
-    return str(msg)
 
+router = APIRouter()
 
 @router.post("/refine-system-prompt", response_model=RefineSystemPromptResponse)
 async def refine_system_prompt(req: RefineSystemPromptRequest) -> RefineSystemPromptResponse:
     try:
         user_block = REFINE_HUMAN_PREFIX.format(raw=req.systemPromptOfUser.strip())
-        out = await _refine_model.ainvoke(
-            [
-                SystemMessage(content=SYSTEM_REFINER),
-                HumanMessage(content=user_block),
-            ],
+        
+        gemini_resp = await gemini_client.generate_content_async(
+            model="gemini-3.1-flash-lite-preview",
+            contents=[user_block],
+            system_instruction=SYSTEM_REFINER,
+            temperature=0.7
         )
-        text = _extract_text_from_result(out).strip()
+        
+        text = (gemini_resp.text or "").strip()
+        
         return RefineSystemPromptResponse(
             message="Tối ưu hệ thống prompt thành công",
             data=text,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

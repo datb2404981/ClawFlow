@@ -13,7 +13,7 @@ from Tools.tool_calculator import tool_by_name as calculator_tools
 from Tools.tool_code import tool_by_name as code_tools
 from Tools.tool_rag import tool_by_name as rag_tools
 from Tools.tool_gmail import read_gmail_tool
-from Tools.tool_gmail_send import send_gmail_tool
+from Tools.tool_gmail_send import send_gmail_tool, draft_gmail_tool
 from Tools.tool_calendar import create_calendar_event_tool
 from Tools.tool_delegate import delegate_to_integration
 
@@ -35,6 +35,10 @@ class ClawFlowState(TypedDict, total=False):
     review_count: int
     tool_call_count: int
     has_bypassed_integration: bool
+    gmail_permission_granted: bool
+
+    integrations: Optional[dict]
+    system_context: Optional[str]
 
 
 # =========================================================================
@@ -44,6 +48,7 @@ gmail_tools = {
     "read_gmail_tool": read_gmail_tool,
     "delegate_to_integration": delegate_to_integration,
     "send_gmail_tool": send_gmail_tool,
+    "draft_gmail_tool": draft_gmail_tool,
     "create_calendar_event_tool": create_calendar_event_tool
 }
 ALL_TOOLS = {**browser_tools, **content_tools, **memory_tools, **calculator_tools, **code_tools, **rag_tools, **gmail_tools}

@@ -1,19 +1,7 @@
-from langchain.chat_models import init_chat_model
-from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
-from Tools.tool_memory import Get_Core_Profile, Save_Thread_Context, Get_Thread_Context
+import os
 
-_model = init_chat_model(
-    model=OLLAMA_MODEL,
-    model_provider="ollama",
-    base_url=OLLAMA_BASE_URL,
-    temperature=0.1,
-)
-
-memory_agent = _model.bind_tools([
-    Get_Core_Profile,
-    Save_Thread_Context,
-    Get_Thread_Context,
-])
+# Model Routing
+GEMINI_MODEL_MEMORY = "gemini-3.1-flash-lite-preview"
 
 SYSTEM_PROMPT_MEMORY = """Bạn là 'ClawFlow Memory Agent' - Thủ Thư Quản Lý Hồ Sơ Đa Tầng.
 

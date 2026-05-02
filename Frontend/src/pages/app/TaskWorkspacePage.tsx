@@ -69,30 +69,40 @@ function AgentMessageContent({
     <div className="w-full space-y-4">
       {/* Gemini-like Process Tracker */}
       {steps.length > 0 && (
-        <div className="space-y-2 py-1">
-          {steps.map((step, i) => (
-            <div 
-              key={i} 
-              className="flex items-center gap-2.5 text-[0.82rem] animate-in fade-in slide-in-from-left-2 duration-500 fill-mode-both"
-              style={{ animationDelay: `${i * 100}ms` }}
-            >
-               <div className={`flex h-4.5 w-4.5 items-center justify-center rounded-full ring-1 ${
-                 i === steps.length - 1 ? 'bg-blue-50 ring-blue-100' : 'bg-emerald-50 ring-emerald-100'
-               }`}>
-                 {i === steps.length - 1 && isStreaming ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-                 ) : (
-                    <Check className="h-2.5 w-2.5 text-emerald-600" strokeWidth={3} />
-                 )}
-               </div>
-               <span className={`${
-                 i === steps.length - 1 ? 'font-semibold text-slate-700' : 'text-slate-500'
-               }`}>
-                 {step}
-               </span>
+        <details 
+          className="group/steps mb-2 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/30 transition-all"
+          open={isStreaming}
+        >
+          <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] font-medium text-slate-500 hover:bg-slate-100/50 list-none [&::-webkit-details-marker]:hidden">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+              {isStreaming ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              ) : (
+                <Check className="h-3 w-3" strokeWidth={3} />
+              )}
             </div>
-          ))}
-        </div>
+            <span>
+              {isStreaming ? 'Đang thực thi các bước...' : `Đã hoàn thành ${steps.length} bước xử lý`}
+            </span>
+            <ChevronDown className="ml-auto h-3.5 w-3.5 transition-transform group-open/steps:rotate-180 opacity-40" />
+          </summary>
+          <div className="space-y-2.5 px-3 pb-3 pt-1 border-t border-slate-100/50">
+            {steps.map((step, i) => (
+              <div 
+                key={i} 
+                className="flex items-center gap-2.5 text-[0.82rem] animate-in fade-in slide-in-from-left-2 duration-500 fill-mode-both"
+                style={{ animationDelay: `${i * 100}ms` }}
+              >
+                 <div className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-50 ring-1 ring-emerald-100">
+                   <Check className="h-2.5 w-2.5 text-emerald-600" strokeWidth={3} />
+                 </div>
+                 <span className="text-slate-600">
+                   {step}
+                 </span>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {showThoughtPanel && (
@@ -169,6 +179,7 @@ import {
   mergeTaskMessagesPreferLocal,
   taskToChatMessages,
   type Task,
+  type TaskMessageRow,
   updateTask,
 } from '../../api/tasks'
 import { fetchIntegrationsStatus, fetchIntegrationConnectUrl } from '../../api/appSettings'
@@ -187,6 +198,8 @@ const STATUS_LINES: Partial<
   scheduled: { label: 'Đã lên lịch', dot: 'bg-slate-400' },
   in_progress: { label: 'Đang chạy', dot: 'bg-sky-500' },
   waiting_approval: { label: 'Chờ duyệt', dot: 'bg-amber-500' },
+  waiting_human_input: { label: 'Chờ xác nhận', dot: 'bg-amber-500' },
+  waiting_execute_approval: { label: 'Chờ thực thi', dot: 'bg-blue-500' },
   completed: { label: 'Đã hoàn thành', dot: 'bg-emerald-500' },
   failed: { label: 'Lỗi', dot: 'bg-rose-500' },
 }
@@ -199,10 +212,16 @@ function TaskAutomationPanel(props: {
   setScheduleOn: Dispatch<SetStateAction<boolean>>
   cycle: string
   setCycle: Dispatch<SetStateAction<string>>
+  startDate: string
+  setStartDate: Dispatch<SetStateAction<string>>
   time: string
   setTime: Dispatch<SetStateAction<string>>
-  selectedMonthDays: number[]
-  setSelectedMonthDays: Dispatch<SetStateAction<number[]>>
+  interval: number
+  setInterval: Dispatch<SetStateAction<number>>
+  timeUnit: string
+  setTimeUnit: Dispatch<SetStateAction<string>>
+  handleSaveAutomation: () => Promise<void>
+  sending: boolean
 }) {
   const {
     workspaceId,
@@ -212,10 +231,16 @@ function TaskAutomationPanel(props: {
     setScheduleOn,
     cycle,
     setCycle,
+    startDate,
+    setStartDate,
     time,
     setTime,
-    selectedMonthDays,
-    setSelectedMonthDays,
+    interval,
+    setInterval,
+    timeUnit,
+    setTimeUnit,
+    handleSaveAutomation,
+    sending,
   } = props
   const [eventOn, setEventOn] = useState(false)
   const [selectedDays, setSelectedDays] = useState(['T2'])
@@ -378,9 +403,10 @@ function TaskAutomationPanel(props: {
           </div>
 
           <div className={['space-y-6 transition-opacity', !scheduleOn && 'pointer-events-none opacity-40'].join(' ')}>
+            {/* Khối 1: Loại lịch (Schedule Type) */}
             <div>
               <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Chu kỳ
+                Loại lịch
               </label>
               <div className="relative">
                 <select
@@ -388,84 +414,105 @@ function TaskAutomationPanel(props: {
                   onChange={(e) => setCycle(e.target.value)}
                   className="w-full appearance-none rounded-2xl border-none bg-slate-100 py-3.5 pl-5 pr-10 text-[15px] font-medium text-slate-800 outline-none ring-0 focus:ring-2 focus:ring-blue-100"
                 >
-                  <option value="daily">Hàng ngày</option>
-                  <option value="weekly">Hàng tuần</option>
-                  <option value="monthly">Hàng tháng</option>
+                  <option value="once">Một lần duy nhất</option>
+                  <option value="recurring">Lặp lại định kỳ</option>
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
 
-            {cycle === 'weekly' && (
-              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <label className="mb-3 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Ngày trong tuần
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((d) => {
-                    const active = selectedDays.includes(d)
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => toggleDay(d)}
-                        className={[
-                          'flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold transition-all',
-                          active
-                            ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                        ].join(' ')}
-                      >
-                        {d}
-                      </button>
-                    )
-                  })}
+            {/* Khối 1b: Ngày & Giờ cho "Một lần duy nhất" */}
+            {cycle === 'once' && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300 space-y-4">
+                <div>
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Ngày chạy
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full rounded-2xl border-none bg-slate-100 py-3.5 px-5 text-[15px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Giờ chạy
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="time"
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
+                      className="w-full rounded-2xl border-none bg-slate-100 py-3.5 px-5 text-[15px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                    <Clock3 className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
                 </div>
               </div>
             )}
 
-            {cycle === 'monthly' && (
-              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <label className="mb-3 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Ngày trong tháng
-                </label>
-                <div className="grid grid-cols-7 gap-1.5">
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
-                    const active = selectedMonthDays.includes(d)
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => toggleMonthDay(d)}
-                        className={[
-                          'flex aspect-square items-center justify-center rounded-lg text-[13px] font-bold transition-all',
-                          active
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                        ].join(' ')}
+            {/* Khối 2: Cấu hình Lặp lại (Recurring) */}
+            {cycle === 'recurring' && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300 space-y-4">
+                <div>
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Lặp lại mỗi
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={999}
+                      value={interval}
+                      onChange={(e) => setInterval(parseInt(e.target.value) || 1)}
+                      className="w-24 rounded-2xl border-none bg-slate-100 py-3.5 px-5 text-center text-[15px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                    <div className="relative flex-1">
+                      <select
+                        value={timeUnit}
+                        onChange={(e) => setTimeUnit(e.target.value)}
+                        className="w-full appearance-none rounded-2xl border-none bg-slate-100 py-3.5 pl-5 pr-10 text-[15px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
                       >
-                        {d}
-                      </button>
-                    )
-                  })}
+                        <option value="minutes">Phút</option>
+                        <option value="hours">Giờ</option>
+                        <option value="days">Ngày</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Khối 3: Cấu hình nâng cao - chỉ hiện khi đơn vị là "Ngày" */}
+                {timeUnit === 'days' && (
+                  <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      Chạy vào lúc
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="time"
+                        value={time}
+                        onChange={(e) => setTime(e.target.value)}
+                        className="w-full rounded-2xl border-none bg-slate-100 py-3.5 px-5 text-[15px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
+                      />
+                      <Clock3 className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview */}
+                <div className="rounded-xl bg-blue-50 px-4 py-3">
+                  <p className="text-[13px] font-medium text-blue-700">
+                    ⏱ Lặp lại mỗi{' '}
+                    <span className="font-bold">{interval}</span>{' '}
+                    <span className="font-bold">
+                      {timeUnit === 'minutes' ? 'phút' : timeUnit === 'hours' ? 'giờ' : 'ngày'}
+                    </span>
+                  </p>
                 </div>
               </div>
             )}
-
-            <div>
-              <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Giờ
-              </label>
-              <div className="relative">
-                <input
-                  type="time"
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                  className="w-full rounded-2xl border-none bg-slate-100 py-3.5 px-5 text-[15px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
-                />
-                <Clock3 className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              </div>
-            </div>
           </div>
         </div>
 
@@ -539,9 +586,11 @@ function TaskAutomationPanel(props: {
       <div className="shrink-0 border-t border-slate-200/50 bg-[var(--color-cf-surface-container-low,#f3f4f5)] p-6">
         <button
           type="button"
-          className="w-full rounded-2xl bg-blue-600 py-4 text-[16px] font-bold tracking-wide text-white shadow-[0_8px_20px_rgba(37,99,235,0.2)] transition-all hover:bg-blue-700 hover:shadow-[0_12px_28px_rgba(37,99,235,0.3)] active:scale-[0.98]"
+          disabled={sending}
+          onClick={() => void handleSaveAutomation()}
+          className="w-full rounded-2xl bg-blue-600 py-4 text-[16px] font-bold tracking-wide text-white shadow-[0_8px_20px_rgba(37,99,235,0.2)] transition-all hover:bg-blue-700 hover:shadow-[0_12px_28px_rgba(37,99,235,0.3)] active:scale-[0.98] disabled:opacity-50"
         >
-          Lưu cấu hình
+          {sending ? 'Đang lưu...' : 'Lưu cấu hình'}
         </button>
       </div>
     </aside>
@@ -588,12 +637,66 @@ export function TaskWorkspacePage() {
   
   // Automation settings (synced with panel)
   const [scheduleOn, setScheduleOn] = useState(false)
-  const [cycle, setCycle] = useState('daily')
+  const [cycle, setCycle] = useState('once')
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
   const [time, setTime] = useState('09:00')
-  const [selectedMonthDays, setSelectedMonthDays] = useState([1])
+  const [timeUnit, setTimeUnit] = useState('minutes')
+  const [interval, setInterval] = useState(5)
   const [schedulePopupOpen, setSchedulePopupOpen] = useState(false)
   const [taskMenuOpen, setTaskMenuOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+
+  const handleSaveAutomation = async () => {
+    let cron = ''
+    let nextRun: Date | null = null
+    const now = new Date()
+
+    if (cycle === 'recurring') {
+      const val = interval || 5
+      if (timeUnit === 'minutes') {
+        cron = `*/${val} * * * *`
+        nextRun = new Date(now.getTime() + val * 60000)
+      } else if (timeUnit === 'hours') {
+        cron = `0 */${val} * * *`
+        nextRun = new Date(now.getTime() + val * 3600000)
+      } else {
+        // days
+        const [hh, mm] = time.split(':').map(Number)
+        cron = `${mm} ${hh} */${val} * *`
+        nextRun = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0)
+        if (nextRun <= now) {
+          nextRun.setDate(nextRun.getDate() + val)
+        }
+      }
+    } else {
+      // one-off
+      const [hh, mm] = time.split(':').map(Number)
+      nextRun = new Date(startDate)
+      nextRun.setHours(hh, mm, 0, 0)
+      if (nextRun < now) {
+        // Nếu user chọn giờ đã qua trong hôm nay, mặc định dời sang mai? 
+        // Hoặc cứ để nó quá hạn để scheduler quét phát hiện ngay? 
+        // Ta giữ nguyên lựa chọn của user.
+      }
+      cron = '' 
+    }
+
+    try {
+      setSending(true)
+      await updateTask(taskId, workspaceId, {
+        schedule_enabled: scheduleOn,
+        schedule_cron: cron,
+        next_run_at: nextRun?.toISOString() || null
+      })
+      alert('Đã lưu cấu hình tự động hoá!')
+      setPanelOpen(false)
+    } catch (e) {
+      console.error(e)
+      alert('Lỗi khi lưu cấu hình: ' + (e instanceof Error ? e.message : 'Unknown error'))
+    } finally {
+      setSending(false)
+    }
+  }
 
   const base = `/app/w/${workspaceId}`
 
@@ -619,6 +722,45 @@ export function TaskWorkspacePage() {
     })()
   }, [taskId, workspaceId])
 
+  // Hydrate automation state when task is loaded
+  useEffect(() => {
+    if (task) {
+      setScheduleOn(task.schedule_enabled || false)
+      if (task.schedule_cron) {
+        setCycle('recurring')
+        // Parse cron: "*/5 * * * *" or "0 */2 * * *" or "0 0 */3 * *"
+        const parts = task.schedule_cron.split(' ')
+        if (parts.length >= 5) {
+          const min = parts[0]
+          const hour = parts[1]
+          const day = parts[2]
+          
+          if (min.startsWith('*/')) {
+             setTimeUnit('minutes')
+             setInterval(parseInt(min.replace('*/', '')) || 5)
+          } else if (hour.startsWith('*/')) {
+             setTimeUnit('hours')
+             setInterval(parseInt(hour.replace('*/', '')) || 1)
+          } else if (day.startsWith('*/')) {
+             setTimeUnit('days')
+             setInterval(parseInt(day.replace('*/', '')) || 1)
+          }
+        }
+      } else {
+        setCycle('once')
+        if (task.next_run_at) {
+          try {
+            const dt = new Date(task.next_run_at)
+            setStartDate(dt.toISOString().split('T')[0])
+            setTime(dt.toTimeString().split(' ')[0].slice(0, 5))
+          } catch (e) {
+            console.warn('Failed to parse next_run_at:', task.next_run_at)
+          }
+        }
+      }
+    }
+  }, [task])
+
   useEffect(() => {
     if (!workspaceId || !taskId) return
     const wsOrigin = resolveWsOrigin()
@@ -640,6 +782,7 @@ export function TaskWorkspacePage() {
       node?: string;
       status?: string;
       tool?: string;
+      messageId?: string;
     }) => {
       if (!payload || String(payload.taskId ?? '') !== String(taskId)) return
 
@@ -666,21 +809,50 @@ export function TaskWorkspacePage() {
 
       setTask((prev) => {
         if (!prev || String(prev._id) !== String(taskId)) return prev
-        // Chunk trễ sau khi task đã kết thúc — không ghi đè status/messages (gây nháy / mất nội dung)
         if (prev.status === 'completed' || prev.status === 'failed') {
           return prev
         }
-        const messages = Array.isArray(prev.messages) ? [...prev.messages] : []
-        let last = messages[messages.length - 1]
 
-        if (!last || last.role === 'user') {
-          last = {
+        const messages = Array.isArray(prev.messages) ? [...prev.messages] : []
+        const msgId = payload.messageId
+        
+        // 0. Render Guard: Nếu ID này đã tồn tại trong mảng và type là loại đặc biệt (như summary)
+        // thì ta chỉ cập nhật nội dung chứ không bao giờ push mới.
+        // Thực tế logic bên dưới đã handle Upsert, nhưng ta thêm check type nếu cần.
+        
+        // 1. Tìm tin nhắn theo ID
+        let existingIdx = -1
+        if (msgId) {
+          existingIdx = messages.findIndex(m => m.messageId === msgId)
+        } else {
+          // Fallback cho logic cũ nếu không có ID
+          const last = messages[messages.length - 1]
+          if (last && last.role === 'assistant') {
+            existingIdx = messages.length - 1
+          }
+        }
+
+        let target: TaskMessageRow
+        if (existingIdx !== -1) {
+          target = { ...messages[existingIdx] }
+        } else {
+          target = {
+            messageId: msgId,
             role: 'assistant',
             content: '',
             steps: [],
             createdAt: new Date().toISOString(),
           }
-          messages.push(last)
+          messages.push(target)
+          existingIdx = messages.length - 1
+        }
+
+        if (type === 'action_plan' && (payload as any).actionPlan) {
+          return {
+            ...prev,
+            status: 'waiting_human_input',
+            draft_payload: JSON.stringify((payload as any).actionPlan),
+          }
         }
 
         if (type === 'status') {
@@ -695,19 +867,22 @@ export function TaskWorkspacePage() {
             label = TOOL_FRIENDLY[payload.tool] || `Đang thực thi: ${payload.tool}`
           }
 
-          if (label && last.role === 'assistant') {
-            const steps = Array.isArray(last.steps) ? [...last.steps] : []
+          if (label) {
+            const steps = Array.isArray(target.steps) ? [...target.steps] : []
             if (!steps.includes(label)) {
               steps.push(label)
-              messages[messages.length - 1] = { ...last, steps }
+              messages[existingIdx] = { ...target, steps }
             }
           }
         } else {
           // type === 'chunk'
-          if (chunk && last.role === 'assistant') {
-            messages[messages.length - 1] = {
-              ...last,
-              content: `${String(last.content ?? '')}${chunk}`,
+          if (chunk) {
+            const raw = `${String(target.content ?? '')}${chunk}`;
+            const clean = raw.replace(/<!--CF_ACTION_PLAN_START-->[\s\S]*?<!--CF_ACTION_PLAN_END-->/g, '')
+                             .replace(/<!--CF_ACTION_PLAN_START-->|<!--CF_ACTION_PLAN_END-->/g, '');
+            messages[existingIdx] = {
+              ...target,
+              content: clean,
             }
           }
         }
@@ -720,17 +895,18 @@ export function TaskWorkspacePage() {
       })
     })
 
-    socket.on('task.status', (payload: { taskId?: string; status?: string; result?: string }) => {
+    socket.on('task.status', (payload: { taskId?: string; status?: string; result?: string; messageId?: string; draft_payload?: string }) => {
       if (!payload || String(payload.taskId ?? '') !== String(taskId)) return
       // Cập nhật status ngay lập tức (real-time) từ payload
       const newStatus = payload.status as Task['status'] | undefined
       if (newStatus) {
         setTask((prev) => {
           if (!prev || String(prev._id) !== String(taskId)) return prev
-          // #region agent log
-          fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-status:${taskId}`,hypothesisId:'H11',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:711',message:'task_status_update_local',data:{fromStatus:prev.status,toStatus:newStatus,prevMessagesLen:Array.isArray(prev.messages)?prev.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-          return { ...prev, status: newStatus }
+          return { 
+            ...prev, 
+            status: newStatus,
+            draft_payload: payload.draft_payload || prev.draft_payload 
+          }
         })
         if (newStatus === 'completed' || newStatus === 'failed') {
           setLeaderThoughtStream('')
@@ -890,20 +1066,43 @@ export function TaskWorkspacePage() {
   const submitUpdate = async () => {
     const text = draft.trim()
     if (!text || !task || !workspaceId || sending) return
+    
+    // 1. Tạo ID duy nhất cho tin nhắn User (Optimistic)
+    const userMsgId = `user_msg_${Date.now()}`
+    const newUserMsg: TaskMessageRow = {
+      messageId: userMsgId,
+      role: 'user',
+      content: text,
+      createdAt: new Date().toISOString(),
+    }
+
     setSending(true)
+    setDraft('')
+    setComposerFsOpen(false)
+
+    // 2. Optimistic Update: Thêm ngay vào UI
+    setTask((prev) => {
+      if (!prev) return prev
+      const messages = Array.isArray(prev.messages) ? [...prev.messages] : []
+      return { ...prev, messages: [...messages, newUserMsg] }
+    })
+
     try {
       // #region agent log
-      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`submit-update:${task._id}`,hypothesisId:'H15',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:871',message:'submit_update_before_append',data:{taskId:task._id,taskStatus:task.status,currentMessagesLen:Array.isArray(task.messages)?task.messages.length:0,textLen:text.length},timestamp:Date.now()})}).catch(()=>{});
+      fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`submit-update:${task._id}`,hypothesisId:'H15',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:871',message:'submit_update_before_append',data:{taskId:task._id,taskStatus:task.status,currentMessagesLen:Array.isArray(task.messages)?task.messages.length:0,textLen:text.length,userMsgId},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
-      const updated = await appendTaskMessage(task._id, workspaceId, text)
+      
+      const updated = await appendTaskMessage(task._id, workspaceId, text, userMsgId)
+      
       // #region agent log
       fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`submit-update:${task._id}`,hypothesisId:'H15',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:875',message:'submit_update_after_append',data:{returnedTaskId:updated?._id ?? '',returnedStatus:updated?.status ?? '',returnedMessagesLen:Array.isArray(updated?.messages)?updated.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
-      setTask(updated)
-      setDraft('')
-      setComposerFsOpen(false)
+      
+      // mergeTaskMessagesPreferLocal sẽ lo việc deduplicate nếu Backend dội lại
+      setTask((prev) => mergeTaskMessagesPreferLocal(prev, updated))
     } catch (e) {
       setErr(getApiErrorMessage(e, 'Không gửi được tin nhắn'))
+      // Rollback nếu cần (đơn giản nhất là fetch lại task)
     } finally {
       setSending(false)
     }
@@ -1118,6 +1317,7 @@ export function TaskWorkspacePage() {
                   <ActionCards 
                     draftPayload={task.draft_payload} 
                     taskId={task._id} 
+                    workspaceId={workspaceId}
                     onActionComplete={() => {
                       void (async () => {
                         try {
@@ -1257,22 +1457,22 @@ export function TaskWorkspacePage() {
                               onChange={(e) => setCycle(e.target.value)}
                               className="w-full appearance-none rounded-xl bg-slate-100 py-2.5 pl-4 pr-10 text-xs font-bold text-slate-700 outline-none"
                             >
-                              <option value="daily">Hàng ngày</option>
-                              <option value="weekly">Hàng tuần</option>
-                              <option value="monthly">Hàng tháng</option>
+                              <option value="once">Một lần duy nhất</option>
+                              <option value="recurring">Lặp lại định kỳ</option>
                             </select>
                             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="time"
-                              value={time}
-                              onChange={(e) => setTime(e.target.value)}
-                              className="flex-1 rounded-xl bg-slate-100 py-2.5 px-4 text-xs font-bold text-slate-700 outline-none"
-                            />
-                            <Clock3 className="h-4 w-4 text-slate-400" />
-                          </div>
+                          {cycle === 'recurring' && (
+                            <div className="rounded-lg bg-blue-50 px-3 py-2">
+                              <p className="text-[11px] font-medium text-blue-700">
+                                ⏱ Lặp lại mỗi <span className="font-bold">{interval}</span>{' '}
+                                <span className="font-bold">
+                                  {timeUnit === 'minutes' ? 'phút' : timeUnit === 'hours' ? 'giờ' : 'ngày'}
+                                </span>
+                              </p>
+                            </div>
+                          )}
                           
                           <button
                             type="button"
@@ -1458,10 +1658,14 @@ export function TaskWorkspacePage() {
           setScheduleOn={setScheduleOn}
           cycle={cycle}
           setCycle={setCycle}
-          time={time}
-          setTime={setTime}
-          selectedMonthDays={selectedMonthDays}
-          setSelectedMonthDays={setSelectedMonthDays}
+          startDate={startDate}
+          setStartDate={setStartDate}
+          interval={interval}
+          setInterval={setInterval}
+          timeUnit={timeUnit}
+          setTimeUnit={setTimeUnit}
+          handleSaveAutomation={handleSaveAutomation}
+          sending={sending}
         />
       </div>
     </div>

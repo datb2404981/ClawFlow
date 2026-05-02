@@ -21,7 +21,7 @@ export class AiCoreService {
    * @param sessionId ID của phiên làm việc (hoặc ID của Task để AI_Core giữ log)
    * @returns Phản hồi của AI (chuỗi văn bản)
    */
-  async chatWithAi(message: string, userId: string, sessionId: string): Promise<string> {
+  async chatWithAi(message: string, userId: string, sessionId: string, systemContext?: string): Promise<string> {
     const url = `${this.baseUrl}/api/v1/chat`;
     
     try {
@@ -34,6 +34,7 @@ export class AiCoreService {
           user_id: userId,
           session_id: sessionId,
           message: message,
+          system_context: systemContext,
         }),
       });
 
@@ -63,8 +64,11 @@ export class AiCoreService {
     message: string,
     userId: string,
     sessionId: string,
+    taskStatus: string,
+    draftPayload: string,
     onEvent: (event: Record<string, any>) => void,
     integrations?: Record<string, any>,
+    systemContext?: string,
   ): Promise<string> {
     const url = `${this.baseUrl}/api/v1/chat/stream`;
     try {
@@ -78,6 +82,9 @@ export class AiCoreService {
           session_id: sessionId,
           message,
           integrations,
+          task_status: taskStatus,
+          draft_payload: draftPayload,
+          system_context: systemContext,
         }),
       });
 

@@ -37,7 +37,10 @@ async def chat_with_ai(req: ChatRequest):
             query=req.message, 
             user_id=req.user_id,
             thread_id=req.session_id,
-            integrations=req.integrations
+            integrations=req.integrations,
+            task_status=req.task_status or "running",
+            draft_payload=req.draft_payload or "",
+            system_context=req.system_context
         )
         
         return ChatResponse(
@@ -84,6 +87,9 @@ async def chat_stream(req: ChatRequest):
                 user_id=req.user_id,
                 thread_id=req.session_id,
                 integrations=req.integrations,
+                task_status=req.task_status or "running",
+                draft_payload=req.draft_payload or "",
+                system_context=req.system_context,
             ):
                 if not piece:
                     continue

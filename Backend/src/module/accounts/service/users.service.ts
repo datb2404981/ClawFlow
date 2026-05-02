@@ -43,7 +43,6 @@ const INTEGRATION_CATALOG: IntegrationCatalogItem[] = [
     display_name: 'Gmail',
     required_scopes: [
       'https://www.googleapis.com/auth/gmail.send',
-      'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/gmail.modify'
     ],
     features: [
@@ -346,9 +345,9 @@ export class UsersService {
   /**
    * Server Guard & Data Fetcher: Gộp logic trạng thái và lấy token thực tế cho Executor/AI_Core.
    */
-  async getExecutorIntegrationsGate(userId: string): Promise<{
+  async getExecutorIntegrationsGate(userId: string, permissionFlags: Record<string, boolean> = {}): Promise<{
     providerStatusString: string;
-    connections: Record<string, IntegrationConnectionState & { access_token?: string; refresh_token?: string }>;
+    connections: Record<string, IntegrationConnectionState & { access_token?: string; refresh_token?: string; gmail_action_granted?: boolean }>;
     gmail_send: boolean;
     calendar_create: boolean;
     drive_upload: boolean;
@@ -388,6 +387,8 @@ export class UsersService {
         access_token: finalToken, 
         refresh_token: rawConn.refresh_token,
         expires_at: finalExpiresAt,
+        gmail_action_granted: !!permissionFlags.gmail_action_granted,
+        last_sync_at: rawConn.last_sync_at,
       };
       
       connections[item.provider] = fullConn;
@@ -639,6 +640,17 @@ export class UsersService {
       },
     );
     return { provider, disconnected: true };
+  }
+  
+  async updateGmailSyncTime(userId: string): Promise<void> {
+    await this.userModel.updateOne(
+      { _id: userId },
+      { 
+        $set: { 
+          'integration_connections.gmail.last_sync_at': new Date() 
+        } 
+      }
+    );
   }
 
   async updateAppSettings(

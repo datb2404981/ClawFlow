@@ -44,6 +44,7 @@ export class TasksController {
       taskId,
       q.workspace_id,
       dto.content,
+      dto.messageId,
     );
   }
 
@@ -131,5 +132,20 @@ export class TasksController {
     @Query() q: TaskScopeQueryDto,
   ) {
     return this.tasksService.remove(user._id, taskId, q.workspace_id);
+  }
+
+  @Post(':taskId/grant-permission')
+  @ResponseMessage('Đã cấp quyền cho AI')
+  grantPermission(
+    @User() user: IUser,
+    @Param('taskId') taskId: string,
+    @Body() body: { workspace_id: string; provider: string },
+  ) {
+    return this.tasksService.grantPermission(
+      user._id,
+      taskId,
+      body.workspace_id,
+      body.provider,
+    );
   }
 }

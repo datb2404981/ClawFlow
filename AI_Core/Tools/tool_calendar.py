@@ -47,8 +47,9 @@ def create_calendar_event_tool(
     location: str = "",
     config: Annotated[RunnableConfig, InjectedToolArg] = None,
 ) -> str:
-    """Tạo sự kiện trên Google Calendar.
-
+    """
+    BẮT BUỘC SỬ DỤNG khi người dùng yêu cầu LÊN LỊCH, TẠO SỰ KIỆN, 
+    hoặc ĐẶT HẸN trong Google Calendar.
     Args:
         summary: Tên/tiêu đề sự kiện.
         start_time: Thời gian bắt đầu (ISO 8601 hoặc dd/MM/yyyy HH:mm).

@@ -1,28 +1,7 @@
-# Agents/content_agent.py
-from langchain.chat_models import init_chat_model
-from ollama_config import OLLAMA_BASE_URL, OLLAMA_MODEL
-from Tools.tool_content import *
-# Model
-_model = init_chat_model(
-  model=OLLAMA_MODEL,
-  model_provider="ollama",
-  base_url=OLLAMA_BASE_URL,
-  temperature=0.7
-)
+import os
 
-# temperature=0.7 cao hơn Leader (0.3) → sáng tạo hơn khi viết
-content_agent = _model.bind_tools([
-  Format_As_Table,
-  Format_As_List,
-  Format_As_Mermaid_Chart,
-  Get_Blog_Template,
-  Get_Report_Template,
-  Get_Script_Template,
-  Get_Email_Template,
-  Translate_Content,
-  Summarize_Content,
-  SEO_Optimize
-  ])
+# Model Routing theo yêu cầu refactor
+GEMINI_MODEL_CONTENT = "gemma-4-31b-it"
 
 SYSTEM_PROMPT_CONTENT = """Bạn là 'ClawFlow Content Writer' - Chuyên gia chuyên thiết kế và định dạng nội dung AI cao cấp.
 

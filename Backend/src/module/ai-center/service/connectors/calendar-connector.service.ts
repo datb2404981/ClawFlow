@@ -9,14 +9,24 @@ export class CalendarConnectorService {
     const description = String(action?.payload?.description ?? action?.description ?? '');
 
     if (!start || !end) {
-      throw new Error('Thiếu thời gian bắt đầu hoặc kết thúc.');
+      throw new Error('Thiếu thời gian bắt đầu hoặc kết thúc cho sự kiện lịch.');
+    }
+
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      throw new Error(
+        `Định dạng thời gian không hợp lệ. AI gửi: start="${start}", end="${end}". ` +
+        `Vui lòng sử dụng định dạng ISO 8601 (VD: 2026-05-15T14:00:00+07:00).`
+      );
     }
 
     const event = {
       summary: title,
       description: description,
-      start: { dateTime: new Date(start).toISOString() },
-      end: { dateTime: new Date(end).toISOString() },
+      start: { dateTime: startDate.toISOString() },
+      end: { dateTime: endDate.toISOString() },
     };
 
     try {
@@ -31,13 +41,14 @@ export class CalendarConnectorService {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error?.message || 'Lỗi tạo sự kiện lịch.');
+        const detail = data.error?.message || JSON.stringify(data);
+        throw new Error(`Google Calendar API báo lỗi: ${detail}`);
       }
       return {
         resultText: `Đã tạo sự kiện lịch "${title}" thành công (Link: ${data.htmlLink})`,
       };
     } catch (error) {
-      throw new Error(`Lỗi gọi Google Calendar API: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Lỗi hệ thống khi tạo sự kiện: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

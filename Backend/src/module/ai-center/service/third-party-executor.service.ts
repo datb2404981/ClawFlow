@@ -39,7 +39,7 @@ export class ThirdPartyExecutorService {
           if (!conn?.connected || !conn?.access_token) {
             const reason = 'Chưa kết nối Gmail hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
-            results.push(`SKIPPED: Gmail integration (${reason})`);
+            results.push(`✔️ Đã bỏ qua: Gmail (${reason})`);
             continue;
           }
           r = await this.gmail.sendEmailDraft(a, conn.access_token);
@@ -48,7 +48,7 @@ export class ThirdPartyExecutorService {
           if (!conn?.connected || !conn?.access_token) {
             const reason = 'Chưa kết nối Google Calendar hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
-            results.push(`SKIPPED: Google Calendar integration (${reason})`);
+            results.push(`✔️ Đã bỏ qua: Google Calendar (${reason})`);
             continue;
           }
           r = await this.calendar.createCalendarEvent(a, conn.access_token);
@@ -57,7 +57,7 @@ export class ThirdPartyExecutorService {
           if (!conn?.connected || !conn?.access_token) {
             const reason = 'Chưa kết nối Google Drive hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
-            results.push(`SKIPPED: Google Drive integration (${reason})`);
+            results.push(`✔️ Đã bỏ qua: Google Drive (${reason})`);
             continue;
           }
           r = await this.drive.uploadFile(a, conn.access_token);
@@ -66,7 +66,7 @@ export class ThirdPartyExecutorService {
           if (!conn?.connected || !conn?.access_token) {
             const reason = 'Chưa kết nối Notion hoặc thiếu token';
             executed.push({ index: i, type, status: 'skipped_disabled', reason });
-            results.push(`SKIPPED: Notion integration (${reason})`);
+            results.push(`✔️ Đã bỏ qua: Notion (${reason})`);
             continue;
           }
           r = await this.notion.upsertPage(a, conn.access_token);
@@ -74,14 +74,18 @@ export class ThirdPartyExecutorService {
           r = { resultText: `Action ${type} (không rõ handler)` };
         }
 
-        results.push(r.resultText);
-        executed.push({ index: i, type, status: 'ok' });
+        if (r) {
+          results.push(`✔️ ${r.resultText}`);
+          executed.push({ index: i, type, status: 'ok' });
+        }
       } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        results.push(`❌ Lỗi: ${errMsg}`);
         executed.push({
           index: i,
           type,
           status: 'failed',
-          error: e instanceof Error ? e.message : String(e),
+          error: errMsg,
         });
       }
     }
@@ -95,7 +99,7 @@ export class ThirdPartyExecutorService {
     });
 
     const executeResultText = results.length
-      ? `Đã approve và mô phỏng thực thi ${actions.length} action(s).\n${results.join('\n')}`
+      ? `**Kết quả xử lý hành động:**\n${results.join('\n')}`
       : 'Đã approve. (Không có action trong draft payload.)';
 
     return { executeResultText, executionLog };

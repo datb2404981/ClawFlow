@@ -61,6 +61,9 @@ export type TaskStatus = (typeof TASK_STATUS_VALUES)[number];
 
 @Schema({ _id: false })
 export class TaskMessage {
+  @Prop({ type: String, default: null, index: true })
+  messageId?: string;
+
   @Prop({ type: String, enum: ['user', 'assistant'], required: true })
   role!: 'user' | 'assistant';
 
@@ -160,6 +163,13 @@ export class Task {
   /** Lưu kết quả phản hồi của AI */
   @Prop()
   result?: string;
+
+  /**
+   * Quyền hạn cụ thể cho từng task (Human-in-the-loop)
+   * Ví dụ: { "gmail_action_granted": true }
+   */
+  @Prop({ type: Object, default: {} })
+  permission_flags?: Record<string, boolean>;
 
   createdAt!: Date;
   updatedAt!: Date;

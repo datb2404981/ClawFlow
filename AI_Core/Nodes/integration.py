@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -38,46 +39,8 @@ def _detect_tool_to_call(task: str) -> tuple[str, dict]:
     """Phân tích task description và quyết định gọi tool nào.
     Returns: (tool_name, tool_args)
     """
-    task_lower = task.lower()
-
-    # Gmail: đọc, kiểm tra, xem email
-    gmail_keywords = ["email", "mail", "gmail", "thư", "hộp thư", "inbox", "đọc mail"]
-    if any(kw in task_lower for kw in gmail_keywords):
-        # Trích xuất query nếu có
-        query = ""
-        max_results = 5
-
-        # Tìm số lượng email yêu cầu
-        num_match = re.search(r"(\d+)\s*(email|mail|thư)", task_lower)
-        if num_match:
-            max_results = min(int(num_match.group(1)), 20)
-
-        # Tìm filter (from, subject, v.v.)
-        from_match = re.search(r"(?:từ|from)\s+['\"]?([^'\"]+)['\"]?", task_lower)
-        if from_match:
-            query = f"from:{from_match.group(1).strip()}"
-
-        return "read_gmail_tool", {"query": query, "max_results": max_results}
-
-    # Calendar, Drive, Notion: chưa có tool → trả thông báo rõ ràng
-    calendar_keywords = ["lịch", "calendar", "sự kiện", "event", "cuộc họp", "schedule"]
-    drive_keywords = ["drive", "file", "tài liệu", "document", "upload"]
-    notion_keywords = ["notion", "trang", "page", "database"]
-
-    for kw_list, name in [
-        (calendar_keywords, "Google Calendar"),
-        (drive_keywords, "Google Drive"),
-        (notion_keywords, "Notion"),
-    ]:
-        if any(kw in task_lower for kw in kw_list):
-            return None, {
-                "unsupported": True,
-                "message": f"⚠️ Chức năng đọc dữ liệu từ {name} chưa được hỗ trợ. "
-                           f"Hiện tại em chỉ có thể đọc email từ Gmail. "
-                           f"Chức năng {name} sẽ được bổ sung trong phiên bản tiếp theo.",
-            }
-
-    # Mặc định: thử Gmail
+    # Quyền quyết định đã được chuyển sang LeaderAgent (LLM) hoặc các node khác.
+    # Hàm này hiện tại chỉ trả về mặc định nếu pha 1 vẫn được gọi mà không có logic ngoài.
     return "read_gmail_tool", {"query": "", "max_results": 5}
 
 
@@ -118,9 +81,13 @@ async def integration_agent_node(state: ClawFlowState, config: RunnableConfig):
         
         # Nếu là kết quả email thật -> gọi Gemini phân tích
         from Agents.email_analyzer import analyze_emails
-        user_name = state.get("core_profile", "")  # Try to extract user name from profile if available
-        # Optional: extract simple name from core_profile string. For now, pass whole string or empty
-        analysis_result = await analyze_emails(tool_result, user_name)
+        user_name = state.get("core_profile", "")
+        
+        try:
+            analysis_result = await analyze_emails(tool_result, user_name)
+        except Exception as e:
+            print(f"[integration] Email analysis failed: {str(e)}. Falling back to raw text.")
+            analysis_result = {"summaries": [], "actions": [], "parse_error": True}
 
         if analysis_result.get("parse_error"):
             # Lỗi JSON -> fallback
