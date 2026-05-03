@@ -15,7 +15,7 @@ export type TaskStatus =
 
 export type TaskMessageRow = {
   messageId?: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
   /** Bước tiến trình (leader / tool) — stream từ socket. */
   steps?: string[]
@@ -108,13 +108,13 @@ export type Task = {
 }
 
 export type TaskChatMessage = { 
-  role: 'user' | 'assistant'; 
+  role: 'user' | 'assistant' | 'system'; 
   content: string;
   steps?: string[];
 }
 
-function isChatRole(r: string): r is 'user' | 'assistant' {
-  return r === 'user' || r === 'assistant'
+function isChatRole(r: string): r is 'user' | 'assistant' | 'system' {
+  return r === 'user' || r === 'assistant' || r === 'system'
 }
 
 /** Chuẩn hoá task → bubble chat: ưu tiên `messages[]`, fallback description + result (task cũ). */
@@ -155,7 +155,7 @@ export function taskToChatMessages(t: Task): TaskChatMessage[] {
         return true
       })
       .map((m) => ({
-        role: m.role as 'user' | 'assistant',
+        role: m.role as 'user' | 'assistant' | 'system',
         content: String(m.content).trim(),
         steps: Array.isArray(m.steps) ? m.steps : [],
       }))

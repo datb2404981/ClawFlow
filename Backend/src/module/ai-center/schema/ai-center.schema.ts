@@ -64,8 +64,8 @@ export class TaskMessage {
   @Prop({ type: String, default: null, index: true })
   messageId?: string;
 
-  @Prop({ type: String, enum: ['user', 'assistant'], required: true })
-  role!: 'user' | 'assistant';
+  @Prop({ type: String, enum: ['user', 'assistant', 'system'], required: true })
+  role!: 'user' | 'assistant' | 'system';
 
   @Prop({ type: String, required: true })
   content!: string;

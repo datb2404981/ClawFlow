@@ -268,6 +268,12 @@ export class TasksService {
     if (!out) {
       throw new BadRequestException('Không đọc lại được task vừa tạo.');
     }
+
+    // BẮT BUỘC: Bắn WebSockets để Sidebar cập nhật Real-time
+    this.tasksGateway.server
+      .to(dto.workspace_id)
+      .emit('task.created', { task: out });
+
     return out as object;
   }
 
@@ -1227,7 +1233,7 @@ export class TasksService {
     
     updatedMessages.push({
       messageId: actionMsgId,
-      role: 'assistant',
+      role: 'system',
       content: resultMsg,
       createdAt: new Date(),
     });
@@ -1298,6 +1304,13 @@ export class TasksService {
       { _id: taskDoc._id },
       {
         $set: { status: 'rejected', result: rejectText },
+        $push: {
+          messages: {
+            role: 'system',
+            content: rejectText,
+            createdAt: new Date(),
+          },
+        },
       },
     );
 

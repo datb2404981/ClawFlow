@@ -533,8 +533,10 @@ async def leader_agent_node(state: ClawFlowState, config: RunnableConfig):
 
     active_tools = list(tool_browsers)
     from Tools.tool_gmail_send import draft_gmail_tool
-    # Nạp trực tiếp tool cho LLM tự chọn
-    active_tools.append(read_gmail_tool)
+    # KỶ LUẬT THÉP: Leader KHÔNG được tự đọc mail.
+    # Mọi thao tác Gmail đọc/tóm tắt PHẢI qua delegate_to_integration
+    # để integration_agent gọi Email Analyzer tạo JSON structured output.
+    # Chỉ draft_gmail_tool (soạn mail) mới cần Leader gọi trực tiếp.
     active_tools.append(draft_gmail_tool)
     active_tools.append(delegate_to_integration)
 

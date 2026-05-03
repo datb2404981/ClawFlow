@@ -189,7 +189,17 @@ import { extractThoughtAndBody, normalizeThoughtTags } from '../../utils/assista
 import type { WsOutlet } from '../../layouts/WorkspaceAppLayout'
 import { TASK_CHAT_MD_COMPONENTS } from './taskChatMarkdown'
 import { ActionCards } from '../../components/ActionCards'
+import { EmailSummaryCard, parseEmailSummaryFromContent } from '../../components/EmailSummaryCard'
 import { io } from 'socket.io-client'
+
+const SystemBadge = ({ text }: { text: string }) => (
+  <div className="flex justify-center my-6 animate-in fade-in zoom-in duration-500">
+    <div className="flex items-center gap-2 bg-slate-100/80 backdrop-blur-sm border border-slate-200 text-slate-500 px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider shadow-sm ring-1 ring-white/50">
+      <div className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" />
+      <span>{text}</span>
+    </div>
+  </div>
+);
 
 const STATUS_LINES: Partial<
   Record<Task['status'], { label: string; dot: string }>
@@ -243,7 +253,7 @@ function TaskAutomationPanel(props: {
     sending,
   } = props
   const [eventOn, setEventOn] = useState(false)
-  const [selectedDays, setSelectedDays] = useState(['T2'])
+
   const [isLinked, setIsLinked] = useState(false)
   const [loadingLink, setLoadingLink] = useState(true)
 
@@ -264,17 +274,7 @@ function TaskAutomationPanel(props: {
     }
   }, [open])
 
-  const toggleDay = (day: string) => {
-    setSelectedDays(prev => 
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-    )
-  }
 
-  const toggleMonthDay = (day: number) => {
-    setSelectedMonthDays(prev =>
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-    )
-  }
 
   const handleConnectGoogle = async () => {
     try {
@@ -777,7 +777,7 @@ export function TaskWorkspacePage() {
 
     socket.on('task.stream', (payload: { 
       taskId?: string; 
-      type?: 'chunk' | 'status';
+      type?: 'chunk' | 'status' | 'action_plan';
       chunk?: string; 
       node?: string;
       status?: string;
@@ -897,33 +897,53 @@ export function TaskWorkspacePage() {
 
     socket.on('task.status', (payload: { taskId?: string; status?: string; result?: string; messageId?: string; draft_payload?: string }) => {
       if (!payload || String(payload.taskId ?? '') !== String(taskId)) return
-      // Cập nhật status ngay lập tức (real-time) từ payload
+      // Cập nhật status + content NGAY LẬP TỨC (real-time) — không chờ fetchTask()
       const newStatus = payload.status as Task['status'] | undefined
       if (newStatus) {
         setTask((prev) => {
           if (!prev || String(prev._id) !== String(taskId)) return prev
-          return { 
+          const updated = { 
             ...prev, 
             status: newStatus,
-            draft_payload: payload.draft_payload || prev.draft_payload 
+            draft_payload: payload.draft_payload ?? prev.draft_payload,
           }
+          // CẬP NHẬT NỘI DUNG ASSISTANT BUBBLE NGAY TỪ SOCKET (Fix "Mù Real-time")
+          if (payload.result && Array.isArray(updated.messages)) {
+            const messages = [...updated.messages]
+            const msgId = payload.messageId
+            let targetIdx = -1
+            if (msgId) {
+              targetIdx = messages.findIndex(m => m.messageId === msgId)
+            }
+            if (targetIdx === -1) {
+              // Fallback: tìm assistant message cuối cùng
+              for (let i = messages.length - 1; i >= 0; i--) {
+                if (messages[i].role === 'assistant') { targetIdx = i; break }
+              }
+            }
+            if (targetIdx !== -1) {
+              messages[targetIdx] = { ...messages[targetIdx], content: payload.result }
+            }
+            updated.messages = messages
+          }
+          return updated
         })
         if (newStatus === 'completed' || newStatus === 'failed') {
           setLeaderThoughtStream('')
         }
       }
-      // Sau đó fetch full task data để đồng bộ messages
-      void (async () => {
-        try {
-          const t = await fetchTask(taskId, workspaceId)
-          // #region agent log
-          fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-status-fetch:${taskId}`,hypothesisId:'H11',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:724',message:'task_status_fetch_task_response',data:{fetchedStatus:t?.status ?? '',fetchedMessagesLen:Array.isArray(t?.messages)?t.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-          setTask((prev) => mergeTaskMessagesPreferLocal(prev, t))
-        } catch {
-          // giữ im lặng: status sẽ đồng bộ lại ở lần reload tiếp theo
-        }
-      })()
+      // Fetch full task data sau 500ms để đồng bộ (debounce — tránh DB chưa commit)
+      const fetchTimer = setTimeout(() => {
+        void (async () => {
+          try {
+            const t = await fetchTask(taskId, workspaceId)
+            setTask((prev) => mergeTaskMessagesPreferLocal(prev, t))
+          } catch {
+            // giữ im lặng: status sẽ đồng bộ lại ở lần reload tiếp theo
+          }
+        })()
+      }, 500)
+      return () => clearTimeout(fetchTimer)
     })
 
     return () => {
@@ -1274,18 +1294,22 @@ export function TaskWorkspacePage() {
             </div>
           ) : (
             <div className="mx-auto max-w-4xl space-y-8 pb-10">
-              {chatMessages.map((msg, idx) =>
-              msg.role === 'user' ? (
-                <div key={idx} className="flex w-full justify-end">
-                  <div className="flex max-w-[85%] justify-end sm:max-w-2xl">
-                    <div className="rounded-2xl rounded-tr-sm bg-white px-5 py-3.5 shadow-[0_4px_15px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.03)] ring-1 ring-slate-100/80">
-                      <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-700">
-                        {msg.content}
-                      </p>
+              {chatMessages.map((msg, idx) => {
+                if (msg.role === 'system') {
+                  return <SystemBadge key={idx} text={msg.content} />
+                }
+                
+                return msg.role === 'user' ? (
+                  <div key={idx} className="flex w-full justify-end animate-in fade-in slide-in-from-right-4 duration-500">
+                    <div className="flex max-w-[85%] justify-end sm:max-w-2xl">
+                      <div className="rounded-2xl rounded-tr-sm bg-white px-5 py-3.5 shadow-[0_4px_15px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.03)] ring-1 ring-slate-100/80">
+                        <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-700">
+                          {msg.content}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
+                ) : (
                 <div key={idx} className="mt-8 flex w-full justify-start">
                   <div className="flex w-full max-w-[85%] flex-col gap-2 sm:max-w-4xl">
                     <div className="flex items-center gap-2.5">
@@ -1297,21 +1321,51 @@ export function TaskWorkspacePage() {
                       </span>
                     </div>
                     <div className="pl-9 text-slate-800">
-                      <AgentMessageContent
-                        content={msg.content}
-                        liveThought={
-                          task?.status === 'in_progress' && idx === lastAssistantIndex
-                            ? leaderLiveThought
-                            : null
+                      {(() => {
+                        const emailData = parseEmailSummaryFromContent(msg.content);
+                        if (emailData) {
+                          return (
+                            <>
+                              <p className="text-[13px] text-slate-500 italic mb-2">
+                                Dạ, đây là tóm tắt các email quan trọng của bạn:
+                              </p>
+                              <EmailSummaryCard
+                                data={emailData}
+                                taskId={task._id}
+                                workspaceId={workspaceId}
+                                onActionComplete={() => {
+                                  void (async () => {
+                                    try {
+                                      const t = await fetchTask(taskId, workspaceId)
+                                      setTask((prev) => mergeTaskMessagesPreferLocal(prev, t))
+                                    } catch (e) {
+                                      console.error('Lỗi khi tải lại task:', e)
+                                    }
+                                  })()
+                                }}
+                              />
+                            </>
+                          )
                         }
-                        steps={msg.steps}
-                      />
+                        
+                        return (
+                          <AgentMessageContent
+                            content={msg.content}
+                            liveThought={
+                              task?.status === 'in_progress' && idx === lastAssistantIndex
+                                ? leaderLiveThought
+                                : null
+                            }
+                            steps={msg.steps}
+                          />
+                        )
+                      })()}
                     </div>
                   </div>
                 </div>
-              )
-            )}            
-            {task?.draft_payload && task.status === 'waiting_human_input' && (
+              );
+            })}            
+            {task?.draft_payload && (task.status === 'waiting_human_input' || task.status === 'waiting_execute_approval') && (
               <div className="flex w-full justify-start mt-4">
                 <div className="flex w-full max-w-[85%] flex-col gap-2 sm:max-w-4xl pl-9">
                   <ActionCards 
@@ -1662,6 +1716,8 @@ export function TaskWorkspacePage() {
           setStartDate={setStartDate}
           interval={interval}
           setInterval={setInterval}
+          time={time}
+          setTime={setTime}
           timeUnit={timeUnit}
           setTimeUnit={setTimeUnit}
           handleSaveAutomation={handleSaveAutomation}

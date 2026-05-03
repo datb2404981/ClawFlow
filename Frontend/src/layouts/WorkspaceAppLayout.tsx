@@ -58,6 +58,8 @@ function taskRowIcon(status: TaskStatus) {
     case 'in_progress':
       return <Loader2 {...subIcon} className="h-4 w-4 shrink-0 animate-spin text-sky-500" />
     case 'waiting_approval':
+    case 'waiting_human_input':
+    case 'waiting_execute_approval':
       return <AlertCircle {...subIcon} className="h-4 w-4 shrink-0 text-amber-500" />
     case 'scheduled':
     default:
@@ -70,9 +72,11 @@ const STATUS_BADGE: Partial<
 > = {
   scheduled:       { label: 'Scheduled',  dot: 'bg-slate-400',    text: 'text-slate-500',   bg: 'bg-slate-100/70' },
   in_progress:     { label: 'Running',    dot: 'bg-sky-500',      text: 'text-sky-700',     bg: 'bg-sky-50' },
-  waiting_approval:{ label: 'Approval',   dot: 'bg-amber-500',    text: 'text-amber-700',   bg: 'bg-amber-50' },
-  completed:       { label: 'Done',       dot: 'bg-emerald-500',  text: 'text-emerald-700', bg: 'bg-emerald-50' },
-  failed:          { label: 'Failed',     dot: 'bg-rose-500',     text: 'text-rose-700',    bg: 'bg-rose-50' },
+  waiting_approval:        { label: 'Approval',   dot: 'bg-amber-500',    text: 'text-amber-700',   bg: 'bg-amber-50' },
+  waiting_human_input:     { label: 'Waiting',    dot: 'bg-amber-400',    text: 'text-amber-700',   bg: 'bg-amber-50' },
+  waiting_execute_approval:{ label: 'Approving',  dot: 'bg-yellow-500',   text: 'text-yellow-700',  bg: 'bg-yellow-50' },
+  completed:               { label: 'Done',       dot: 'bg-emerald-500',  text: 'text-emerald-700', bg: 'bg-emerald-50' },
+  failed:                  { label: 'Failed',     dot: 'bg-rose-500',     text: 'text-rose-700',    bg: 'bg-rose-50' },
 }
 
 function TaskStatusBadge({ status }: { status: TaskStatus }) {
@@ -412,6 +416,17 @@ export function WorkspaceAppLayout() {
     socket.on('connect', () => {
       socket.emit('joinWorkspace', workspaceId)
     })
+
+    socket.on(
+      'task.created',
+      (payload: { task: Task }) => {
+        if (!payload?.task) return
+        setTasks((prev) => {
+          if (prev.some(t => t._id === payload.task._id)) return prev
+          return [payload.task, ...prev].slice(0, 50)
+        })
+      }
+    )
 
     socket.on(
       'task.status',

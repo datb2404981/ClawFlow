@@ -89,17 +89,18 @@ async def integration_agent_node(state: ClawFlowState, config: RunnableConfig):
             print(f"[integration] Email analysis failed: {str(e)}. Falling back to raw text.")
             analysis_result = {"summaries": [], "actions": [], "parse_error": True}
 
+        # ━━━ KHỞI TẠO MẶC ĐỊNH — chống UnboundLocalError ━━━
+        summaries = analysis_result.get("summaries", [])
+        actions = analysis_result.get("actions", [])
+
         if analysis_result.get("parse_error"):
-            # Lỗi JSON -> fallback
+            # Lỗi JSON -> fallback raw text
             tagged_result = (
                 "【DỮ LIỆU THẬT TỪ API - BẮT BUỘC TRÍCH DẪN NGUYÊN VĂN, KHÔNG ĐƯỢC THÊM/BỚT/SỬA ĐỔI】\n"
                 f"📧 **Dưới đây là email mới nhất trong hộp thư của bạn:**\n\n{tool_result}\n"
                 "【/DỮ LIỆU THẬT】"
             )
         else:
-            summaries = analysis_result.get("summaries", [])
-            actions = analysis_result.get("actions", [])
-
             md_parts = ["📧 **Tóm tắt email hôm nay:**\n"]
             for s in summaries:
                 prio = "🔴" if s.get("priority") == "high" else "📌"
@@ -129,7 +130,13 @@ async def integration_agent_node(state: ClawFlowState, config: RunnableConfig):
 
         summary = AIMessage(
             content=tagged_result,
-            additional_kwargs={"source_agent": "integration_agent"},
+            additional_kwargs={
+                "source_agent": "integration_agent",
+                "email_analysis": {
+                    "summaries": summaries,
+                    "actions": actions,
+                },
+            },
         )
         return {"messages": [summary]}
 

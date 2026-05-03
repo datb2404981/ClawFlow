@@ -39,7 +39,7 @@ class GeminiClient:
         if not self.api_key:
             raise RuntimeError("Missing GEMINI_API_KEY or GOOGLE_GENAI_API_KEY in environment variables.")
         
-        # 1. Khởi tạo mô hình chính (Primary) - Chịu tải tốt (Flash Lite)
+        # 1. Khởi tạo mô hình chính (Primary) - GA ổn định, chịu tải tốt
         self.primary_llm = ChatGoogleGenerativeAI(
             model="gemini-3.1-flash-lite-preview",
             temperature=0.1,
@@ -47,9 +47,9 @@ class GeminiClient:
             google_api_key=self.api_key
         )
 
-        # 2. Khởi tạo mô hình dự phòng (Fallback) - Bản Flash ổn định
+        # 2. Khởi tạo mô hình dự phòng (Fallback) - Flash GA ổn định
         self.fallback_llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             temperature=0.1,
             max_retries=3,
             google_api_key=self.api_key
