@@ -41,7 +41,7 @@ class GeminiClient:
         
         # 1. Khởi tạo mô hình chính (Primary) - Chịu tải tốt (Flash Lite)
         self.primary_llm = ChatGoogleGenerativeAI(
-            model="gemini-3.1-flash-lite",
+            model="gemini-3.1-flash-lite-preview",
             temperature=0.1,
             max_retries=1, # Nếu lỗi thì đổi sang dự phòng ngay
             google_api_key=self.api_key
