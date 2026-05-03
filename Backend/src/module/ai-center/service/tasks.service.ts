@@ -592,32 +592,35 @@ export class TasksService {
         integrationsGate.connections,
         systemContext,
       );
-      const result =
-        typeof streamResult === 'string' ? streamResult : String(streamResult);
-
-      // --- BƯỚC KIỂM CHỨNG (VALIDATION) CỰC KỲ BẠO LỰC: ---
-      // Ép về string để quét từ khóa crash/lỗi hệ thống mà Python văng ra
-      const responseString = JSON.stringify(result);
-      if (
-        !result ||
-        result.startsWith('AI_Core Error') ||
-        result.startsWith('Lỗi hệ thống:') ||
-        responseString.includes('Traceback')
-      ) {
-        throw new Error(`AI Core bị crash hoặc trả về lỗi: ${result}`);
-      }
-
-      // --- LÀM SẠCH DỮ LIỆU (DATA SANITIZATION): Cắt bỏ log lỗi nội bộ ---
-      // Nếu AI trả kết quả hợp lệ nhưng lỡ dính thêm log lỗi ở cuối
+      
+      const result = typeof streamResult === 'string' ? streamResult : String(streamResult);
       let cleanResult = result;
-      if (cleanResult.includes('google.genai.errors.')) {
-        cleanResult = cleanResult.split('google.genai.errors.')[0].trim();
+
+      // 1. LÀM SẠCH LOG RÁC (Sanitization) ĐẦU TIÊN
+      const errorMarkers = ['google.genai.errors.', 'Traceback (most recent call last):'];
+      for (const marker of errorMarkers) {
+        if (cleanResult.includes(marker)) {
+          cleanResult = cleanResult.split(marker)[0].trim();
+        }
       }
 
-      // --- TRÍCH XUẤT HÀNH ĐỘNG CẦN PHÊ DUYỆT (ACTION PLAN) ---
+      // 2. KIỂM CHỨNG LỖI CỨNG (Hard Error Validation)
+      if (
+        cleanResult.startsWith('AI_Core Error') ||
+        cleanResult.startsWith('[Hệ thống: Lỗi thực thi') || 
+        cleanResult.startsWith('Lỗi hệ thống:')
+      ) {
+         throw new Error(`AI Core đang bận hoặc gặp sự cố kết nối. Vui lòng thử lại sau giây lát.`);
+      }
 
-      // Nếu sau khi cắt thì rỗng → throw error
-      if (!cleanResult.trim()) {
+      // 3. KIỂM CHỨNG KẾT QUẢ RỖNG THÔNG MINH (Smart Empty Check)
+      const textWithoutActionPlans = cleanResult
+          .replace(/<!--CF_ACTION_PLAN_START-->[\s\S]*?<!--CF_ACTION_PLAN_END-->/g, '')
+          .trim();
+
+      const isActionPlanDetected = cleanResult.includes('<!--CF_ACTION_PLAN_START-->');
+      
+      if (!textWithoutActionPlans && !isActionPlanDetected) {
         throw new Error('AI Core trả về kết quả rỗng sau khi làm sạch log lỗi.');
       }
 
@@ -720,7 +723,7 @@ export class TasksService {
           finalStatus,
           userVisibleMessage,
           assistantMsgId,
-          { draft_payload: draftPayload }
+          { draft_payload: draftPayload ? JSON.stringify(draftPayload) : '' }
         );
         this.logger.log(`Task ${taskIdHex}: draft ready → ${finalStatus} (Forced if draft exists)`);
       } else {
@@ -768,7 +771,7 @@ export class TasksService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Lỗi thực thi Task ${taskIdHex}: ${errorMessage}`);
-      const failText = `Lỗi hệ thống: ${errorMessage}`;
+      const failText = `[Hệ thống: ${errorMessage}]`;
       const assistantBubble = {
         role: 'assistant' as const,
         content: failText,
@@ -1291,7 +1294,7 @@ export class TasksService {
 
     // --- BƯỚC 3: Bắn WebSocket qua Frontend ---
     this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, nextStatus, resultMsg, actionMsgId, {
-      draft_payload: actionPlan
+      draft_payload: actionPlan ? JSON.stringify(actionPlan) : ''
     });
 
     const updated = await this.taskModel.findById(taskDoc._id).lean().exec();

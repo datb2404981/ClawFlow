@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Send, User } from 'lucide-react'
+import { X, Send, User, Sparkles, Loader2 } from 'lucide-react'
+import { refineEmailDraft } from '../api/agents'
 
 export type ActionPayload = {
   to?: string
@@ -20,7 +21,34 @@ export function EmailComposeModal({ payload, onClose, onSend, isSending }: Props
   const [subject, setSubject] = useState(payload.subject || '')
   const [body, setBody] = useState(payload.body || '')
   
+  // State (Trạng thái) quản lý nút bấm
+  const [isOptimizing, setIsOptimizing] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Hàm kích hoạt khi ấn nút
+  const handleOptimizeEmail = async () => {
+    const rawBody = body.trim()
+    if (!rawBody) return
+    
+    setErrorMsg('')
+    setIsOptimizing(true)
+    
+    try {
+      const result = await refineEmailDraft(rawBody)
+      if (result.data && result.data.trim()) {
+        setBody(result.data) // Ghi đè chữ AI sửa vào ô nhập
+      } else {
+        setErrorMsg('AI trả về kết quả rỗng. Vui lòng thử lại!')
+      }
+    } catch (error) {
+      console.error(error)
+      setErrorMsg('Không thể tối ưu email lúc này!')
+    } finally {
+      setIsOptimizing(false)
+    }
+  }
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -69,11 +97,31 @@ export function EmailComposeModal({ payload, onClose, onSend, isSending }: Props
           </div>
 
           <div className="flex-1 pt-2">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Nội dung</label>
+              
+              <button
+                onClick={handleOptimizeEmail}
+                disabled={isOptimizing || !body.trim() || isSending}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-full hover:bg-indigo-100 disabled:opacity-50 transition-all active:scale-95 shadow-sm shadow-indigo-100"
+              >
+                {isOptimizing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                {isOptimizing ? 'Đang viết lại...' : 'Tối ưu bằng AI'}
+              </button>
+            </div>
+            
+            {errorMsg && <p className="text-[11px] font-medium text-rose-500 mb-2 px-1">⚠️ {errorMsg}</p>}
+
             <textarea
               ref={textareaRef}
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              className="w-full resize-none bg-transparent text-[15px] leading-relaxed text-slate-700 outline-none min-h-[250px] max-h-[450px]"
+              disabled={isOptimizing}
+              className={`w-full resize-none bg-transparent text-[15px] leading-relaxed text-slate-700 outline-none min-h-[250px] max-h-[450px] transition-opacity ${isOptimizing ? 'opacity-50 cursor-not-allowed bg-slate-50' : ''}`}
               placeholder="Nội dung email..."
               autoFocus
             />

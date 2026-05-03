@@ -4,5 +4,5 @@ import { IsMongoId, IsNotEmpty } from 'class-validator';
 export class SkillTemplateScopeQueryDto {
   @IsNotEmpty()
   @IsMongoId()
-  workspace_id: string;
+  workspace_id!: string;
 }

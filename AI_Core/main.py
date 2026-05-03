@@ -58,6 +58,11 @@ from Api.route_skills import router as route_skills_router
 
 app.include_router(route_skills_router, prefix="/api/v1", tags=["Skill Router"])
 
+# Móc API Email Refiner
+from Api.email_refiner import router as email_refiner_router
+
+app.include_router(email_refiner_router, prefix="/api/v1", tags=["Email Refiner"])
+
 
 def _langsmith_public_status() -> dict:
     """Trạng thái để debug UI/ops — không trả API key."""

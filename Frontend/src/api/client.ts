@@ -26,9 +26,16 @@ export const API_BASE = resolveApiBase()
 export function resolveWsOrigin(): string {
   const fromEnv = import.meta.env.VITE_WS_ORIGIN?.trim()
   if (fromEnv) return fromEnv.replace(/\/$/, '')
+  
   const base = API_BASE.replace(/\/$/, '')
+  // Nếu base là đường dẫn tương đối (vd: /api/v1), nghĩa là đang dùng Proxy
   if (base.startsWith('/')) {
     if (typeof window !== 'undefined') {
+      // Trong môi trường Dev, nếu dùng proxy, ta vẫn nên trỏ Socket thẳng về cổng của Nest (8080)
+      if (import.meta.env.DEV) {
+        const p = import.meta.env.VITE_NEST_PORT?.trim() || '8080'
+        return `http://localhost:${p}`
+      }
       return window.location.origin
     }
     return ''

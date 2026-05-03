@@ -317,6 +317,17 @@ async def run_graph_stream(
                 )
                 continue
 
+            # ==============================================================
+            # BƯỚC LỌC ĐỘC (NÂNG CẤP): Xử lý cả Chunk lẫn tin nhắn cứng
+            # ==============================================================
+            # Nếu tin nhắn không phải là Chunk (mảnh nhỏ), ta bỏ qua để tránh lặp chữ
+            # TUY NHIÊN: Nếu buf đang rỗng, ta cho phép tin nhắn Full Message lọt qua 
+            # (Trường hợp AI trả lời ngay lập tức không qua stream)
+            is_chunk = msg.__class__.__name__.endswith("Chunk")
+            if not is_chunk:
+                if len(buf) > 0:
+                    continue 
+
             # Trích xuất reasoning và content
             reasoning = msg.additional_kwargs.get("reasoning_content") or msg.additional_kwargs.get("thought")
             c = msg.content

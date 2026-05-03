@@ -26,9 +26,8 @@ def draft_gmail_tool(
     VIẾT, GỬI, SOẠN THẢO, TRẢ LỜI, NHẮN email. 
     Không cần (và KHÔNG ĐƯỢC) gọi công cụ đọc email trước khi viết, trừ khi user yêu cầu.
     """
-    # Trả về tín hiệu DONE_DRAFT kèm Action Plan JSON
-    tool_result = f"DONE_DRAFT. Tell user to review the Action Card.\n\n" + \
-           "<!--CF_ACTION_PLAN_START-->" + \
+    # Trả về duy nhất Action Plan JSON để tránh AI bị bối rối
+    tool_result = "<!--CF_ACTION_PLAN_START-->" + \
            json.dumps({
                "requires_human": True,
                "actions": [{

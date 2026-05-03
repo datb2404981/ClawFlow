@@ -100,6 +100,8 @@ export type Task = {
   next_run_at?: string | null
   reject_reason?: string | null
   messages?: TaskMessageRow[]
+  /** Các bước xử lý đang diễn ra (Stream từ Socket) */
+  steps?: string[]
   /** Phản hồi AI sau khi task chạy (Nest/Mongo). */
   result?: string
   compiled_prompt?: string
@@ -166,7 +168,25 @@ export function taskToChatMessages(t: Task): TaskChatMessage[] {
     // #endregion
     // Nếu sau khi filter còn messages → dùng chúng.
     // Nếu filter hết sạch → fall through xuống dưới dùng result fallback.
-    if (filtered.length > 0) return filtered
+    if (filtered.length > 0) {
+      // BƯỚC QUAN TRỌNG: Gộp task.steps (nếu có) vào tin nhắn assistant cuối cùng
+      // Điều này giúp hiển thị tiến trình đang chạy từ Socket lên UI
+      if (t.steps && t.steps.length > 0) {
+        for (let i = filtered.length - 1; i >= 0; i--) {
+          if (filtered[i].role === 'assistant') {
+            const existingSteps = filtered[i].steps || [];
+            // Chỉ thêm những bước chưa có
+            const newSteps = [...existingSteps];
+            t.steps.forEach(s => {
+              if (!newSteps.includes(s)) newSteps.push(s);
+            });
+            filtered[i].steps = newSteps;
+            break;
+          }
+        }
+      }
+      return filtered;
+    }
   }
   const out: TaskChatMessage[] = []
   const desc = (t.description ?? '').trim()

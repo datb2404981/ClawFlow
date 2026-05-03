@@ -8,7 +8,21 @@ from google.genai import types
 class GeminiResponseWrapper:
     """Wrapper để giả lập phản hồi từ Google GenAI SDK cho code cũ không bị break."""
     def __init__(self, ai_msg: AIMessage):
-        self.text = ai_msg.content if isinstance(ai_msg.content, str) else ""
+        # LangChain AIMessage content can be str or List[Union[str, dict]]
+        if isinstance(ai_msg.content, str):
+            self.text = ai_msg.content
+        elif isinstance(ai_msg.content, list):
+            # Extract text parts from multimodal/complex content
+            text_parts = []
+            for part in ai_msg.content:
+                if isinstance(part, str):
+                    text_parts.append(part)
+                elif isinstance(part, dict) and part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+            self.text = "".join(text_parts)
+        else:
+            self.text = ""
+        
         self.tool_calls = ai_msg.tool_calls
         # Giả lập cấu trúc candidates cho leader.py
         self.candidates = [self._Candidate(ai_msg)]
@@ -91,11 +105,18 @@ class GeminiClient:
     ) -> Union[GeminiResponseWrapper, AsyncIterator[Any]]:
         """Gọi LLM với cơ chế Fallback đã được gia cố."""
         
-        # Nếu model được truyền vào cụ thể và không phải mặc định, ta có thể ghi đè
-        # Nhưng ở đây ta dùng robust_llm làm xương sống.
-        llm = self.robust_llm
-        if temperature != 0.1:
-            llm = llm.with_config(configurable={"temperature": temperature})
+        # Nếu model được truyền vào cụ thể và khác với model mặc định, ta sẽ dùng model đó
+        if model and model != "gemini-3.1-flash-lite-preview":
+            # Tạo một instance mới của LLM với model yêu cầu
+            llm = ChatGoogleGenerativeAI(
+                model=model,
+                temperature=temperature,
+                google_api_key=self.api_key
+            )
+        else:
+            llm = self.robust_llm
+            if temperature != 0.1:
+                llm = llm.with_config(configurable={"temperature": temperature})
 
         # Gắn công cụ nếu có
         if tools:

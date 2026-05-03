@@ -24,6 +24,9 @@ export class AiCoreService {
   async chatWithAi(message: string, userId: string, sessionId: string, systemContext?: string): Promise<string> {
     const url = `${this.baseUrl}/api/v1/chat`;
     
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // 120 giây
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -36,6 +39,7 @@ export class AiCoreService {
           message: message,
           system_context: systemContext,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -52,8 +56,14 @@ export class AiCoreService {
 
       return data.reply || '';
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.error(`AI_Core timeout sau 120s tại ${url}`);
+        throw new Error('AI đang suy nghĩ quá lâu, vui lòng thử lại sau giây lát.');
+      }
       this.logger.error(`Không thể kết nối đến AI_Core tại ${url}: ${error}`);
       throw new Error(`Lỗi giao tiếp với AI_Core: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -71,6 +81,10 @@ export class AiCoreService {
     systemContext?: string,
   ): Promise<string> {
     const url = `${this.baseUrl}/api/v1/chat/stream`;
+    const controller = new AbortController();
+    // Đối với stream, ta cho phép thời gian chờ lâu hơn (5 phút) vì AI có thể stream liên tục
+    const timeout = setTimeout(() => controller.abort(), 300000); 
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -86,6 +100,7 @@ export class AiCoreService {
           draft_payload: draftPayload,
           system_context: systemContext,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -155,10 +170,16 @@ export class AiCoreService {
 
       return full;
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.error(`AI_Core Stream timeout tại ${url}`);
+        throw new Error('Kết nối stream bị ngắt do quá thời gian chờ.');
+      }
       this.logger.error(`Không thể stream AI_Core tại ${url}: ${error}`);
       throw new Error(
         `Lỗi giao tiếp với AI_Core: ${error instanceof Error ? error.message : String(error)}`,
       );
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

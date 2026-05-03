@@ -12,8 +12,11 @@ import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: {
-    origin: '*', // Trong môi trường thật, đổi thành URL của frontend
+    origin: '*', // Tạm thời cho phép tất cả để debug kết nối
+    methods: ['GET', 'POST'],
+    credentials: true,
   },
+  transports: ['websocket', 'polling'], 
 })
 export class TasksGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -29,13 +32,17 @@ export class TasksGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
-  @SubscribeMessage('joinWorkspace')
+  @SubscribeMessage('join_workspace')
   handleJoinWorkspace(
     @MessageBody() workspaceId: string,
     @ConnectedSocket() client: Socket,
   ) {
+    if (!workspaceId) {
+      this.logger.error(`❌ Client ${client.id} tried to join without workspaceId`);
+      return;
+    }
     client.join(workspaceId);
-    this.logger.log(`Client ${client.id} joined workspace room: ${workspaceId}`);
+    this.logger.log(`🚪 Client ${client.id} đã tham gia phòng Workspace: ${workspaceId}`);
     return { event: 'joined', data: workspaceId };
   }
 
@@ -64,6 +71,7 @@ export class TasksGateway implements OnGatewayConnection, OnGatewayDisconnect {
     messageId?: string,
     extraData?: Record<string, any>
   ) {
+    this.logger.log(`📡 Emitting task.status to room ${workspaceId} | taskId: ${taskId} | status: ${status}`);
     this.server.to(workspaceId).emit('task.status', {
       taskId,
       status,

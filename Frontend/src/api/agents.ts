@@ -76,3 +76,19 @@ export async function refineSystemPrompt(
   )
   return envelope.data
 }
+
+export type RefineEmailResult = {
+  message: string
+  data: string
+}
+
+/** Gọi Nest → AI Core, trả về nội dung email đã được tối ưu. */
+export async function refineEmailDraft(
+  emailBody: string,
+): Promise<RefineEmailResult> {
+  const { data: envelope } = await api.post<ApiEnvelope<RefineEmailResult>>(
+    '/agents/refine-email',
+    { emailBody },
+  )
+  return envelope.data
+}

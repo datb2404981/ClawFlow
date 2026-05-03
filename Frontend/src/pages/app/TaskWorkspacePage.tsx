@@ -65,6 +65,27 @@ function AgentMessageContent({
     // #endregion
   }, [content, thoughtTrimmed, isStreaming, showThoughtPanel, mainTrimmed])
 
+  // BƯỚC LỌC CUỐI CÙNG: Dọn sạch HTML rác của Action Plan trước khi vẽ UI (Xử lý trường hợp Chunk bị vỡ mảnh)
+  const cleanProse = proseSource.replace(/<!--CF_ACTION_PLAN_START-->[\s\S]*?<!--CF_ACTION_PLAN_END-->/g, '').trim();
+
+  // 1. KIỂM TRA ĐIỀU KIỆN (CONDITIONAL RENDERING) CHO THÔNG BÁO HỆ THỐNG
+  const isSystemMessage = cleanProse.startsWith('[Hệ thống:') || cleanProse.startsWith('[System:');
+
+  if (isSystemMessage) {
+    // Cắt bỏ cái vỏ [Hệ thống: ] đi cho sạch sẽ
+    const cleanSystemText = cleanProse.replace(/\[Hệ thống:\s*|\[System:\s*/, '').replace(/\]$/, '').trim();
+
+    return (
+      <div className="w-full flex justify-center my-4 animate-in fade-in zoom-in duration-500">
+        <div className="px-4 py-1.5 bg-slate-50/80 text-slate-500 text-[11px] font-bold uppercase tracking-wider rounded-full border border-slate-200 shadow-sm flex items-center gap-2 backdrop-blur-sm ring-1 ring-white/50">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          {cleanSystemText}
+        </div>
+      </div>
+    );
+  }
+
+  // 2. NẾU LÀ CHAT BÌNH THƯỜNG THÌ VẼ NHƯ CŨ
   return (
     <div className="w-full space-y-4">
       {/* Gemini-like Process Tracker */}
@@ -155,15 +176,15 @@ function AgentMessageContent({
             }}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={TASK_CHAT_MD_COMPONENTS}>
-              {mergedThought}
+              {thoughtTrimmed}
             </ReactMarkdown>
           </div>
         </details>
       )}
-      {proseSource ? (
+      {cleanProse ? (
         <div className="prose max-w-none" style={{ color: 'var(--cf-chat-prose)' }}>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={TASK_CHAT_MD_COMPONENTS}>
-            {proseSource}
+            {cleanProse}
           </ReactMarkdown>
         </div>
       ) : null}
@@ -768,14 +789,12 @@ export function TaskWorkspacePage() {
 
     const socket = io(wsOrigin, {
       transports: ['websocket', 'polling'],
-    })
+      reconnectionAttempts: 5,
+      timeout: 10000,
+    });
 
-    socket.on('connect', () => {
-      setLeaderThoughtStream('')
-      socket.emit('joinWorkspace', workspaceId)
-    })
-
-    socket.on('task.stream', (payload: { 
+    // 1. Hàm xử lý Stream (Chunk dữ liệu)
+    const handleStream = (payload: { 
       taskId?: string; 
       type?: 'chunk' | 'status' | 'action_plan';
       chunk?: string; 
@@ -786,181 +805,126 @@ export function TaskWorkspacePage() {
     }) => {
       if (!payload || String(payload.taskId ?? '') !== String(taskId)) return
 
-      const type = payload.type || 'chunk'
-      const chunk = String(payload.chunk ?? '')
-      const node = String(payload.node ?? '')
-      // #region agent log
-      if (type === 'status') {
-        fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskId}`,hypothesisId:'H10',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:646',message:'stream_status_event',data:{node,status:payload.status ?? '',tool:payload.tool ?? ''},timestamp:Date.now()})}).catch(()=>{});
-      }
-      // #endregion
-      // #region agent log
-      if (/PASS|FAIL|Lý do:|Gợi ý:|<thought/i.test(chunk)) {
-        fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskId}`,hypothesisId:'H1',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:635',message:'incoming_stream_chunk_with_markers',data:{type,node,status:payload.status ?? '',chunkPreview:chunk.slice(0,160)},timestamp:Date.now()})}).catch(()=>{});
-      }
-      // #endregion
-
-      if (type === 'chunk' && chunk && node === 'leader_agent') {
-        // #region agent log
-        fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskId}`,hypothesisId:'H10',location:'Frontend/src/pages/app/TaskWorkspacePage.tsx:650',message:'leader_chunk_received',data:{chunkLen:chunk.length,hasThoughtTag:/<thought/i.test(chunk),hasReviewMarker:/PASS|FAIL|Lý do:|Gợi ý:/i.test(chunk),chunkPreview:chunk.slice(0,120)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        setLeaderThoughtStream((prev) => `${prev}${chunk}`)
+      if (payload.node) {
+        setTask(prev => {
+          if (!prev) return null;
+          const steps = prev.steps || [];
+          const label = NODE_STEP_LABELS[payload.node!] || payload.node!;
+          if (!steps.includes(label)) return { ...prev, steps: [...steps, label] };
+          return prev;
+        });
       }
 
-      setTask((prev) => {
-        if (!prev || String(prev._id) !== String(taskId)) return prev
-        if (prev.status === 'completed' || prev.status === 'failed') {
-          return prev
+      if (payload.type === 'status' && payload.status) {
+        setTask(prev => prev ? ({ ...prev, status: payload.status as any }) : null);
+        if (payload.status === 'completed' || payload.status === 'failed') {
+          void fetchTask(taskId, workspaceId).then(setTask).catch(() => {});
+        }
+      }
+
+      if (payload.type === 'chunk' && payload.chunk) {
+        console.log('🎾 CHUNK BẮT ĐƯỢC:', payload.chunk);
+        if (payload.node === 'leader_agent') {
+          setLeaderThoughtStream(prev => `${prev}${payload.chunk ?? ''}`);
         }
 
-        const messages = Array.isArray(prev.messages) ? [...prev.messages] : []
-        const msgId = payload.messageId
-        
-        // 0. Render Guard: Nếu ID này đã tồn tại trong mảng và type là loại đặc biệt (như summary)
-        // thì ta chỉ cập nhật nội dung chứ không bao giờ push mới.
-        // Thực tế logic bên dưới đã handle Upsert, nhưng ta thêm check type nếu cần.
-        
-        // 1. Tìm tin nhắn theo ID
-        let existingIdx = -1
-        if (msgId) {
-          existingIdx = messages.findIndex(m => m.messageId === msgId)
-        } else {
-          // Fallback cho logic cũ nếu không có ID
-          const last = messages[messages.length - 1]
-          if (last && last.role === 'assistant') {
-            existingIdx = messages.length - 1
-          }
-        }
+        setTask(prev => {
+          if (!prev || String(prev._id) !== String(taskId)) return prev;
+          if (prev.status === 'completed' || prev.status === 'failed') return prev;
 
-        let target: TaskMessageRow
-        if (existingIdx !== -1) {
-          target = { ...messages[existingIdx] }
-        } else {
-          target = {
-            messageId: msgId,
-            role: 'assistant',
-            content: '',
-            steps: [],
-            createdAt: new Date().toISOString(),
-          }
-          messages.push(target)
-          existingIdx = messages.length - 1
-        }
-
-        if (type === 'action_plan' && (payload as any).actionPlan) {
-          return {
-            ...prev,
-            status: 'waiting_human_input',
-            draft_payload: JSON.stringify((payload as any).actionPlan),
-          }
-        }
-
-        if (type === 'status') {
-          let label = NODE_STEP_LABELS[node]
-          if (payload.status === 'tool_call' && payload.tool) {
-            const TOOL_FRIENDLY: Record<string, string> = {
-              delegate_to_integration: 'Đang kết nối ứng dụng...',
-              read_gmail_tool: 'Đang đọc email...',
-              web_search_tool: 'Đang tìm kiếm web...',
-              tavily_search: 'Đang tìm kiếm web...',
-            }
-            label = TOOL_FRIENDLY[payload.tool] || `Đang thực thi: ${payload.tool}`
-          }
-
-          if (label) {
-            const steps = Array.isArray(target.steps) ? [...target.steps] : []
-            if (!steps.includes(label)) {
-              steps.push(label)
-              messages[existingIdx] = { ...target, steps }
+          const messages = Array.isArray(prev.messages) ? [...prev.messages] : [];
+          const msgId = payload.messageId;
+          
+          let existingIdx = msgId ? messages.findIndex(m => m.messageId === msgId) : -1;
+          if (existingIdx === -1) {
+            // Tìm tin nhắn assistant cuối cùng để nối tiếp
+            for (let i = messages.length - 1; i >= 0; i--) {
+              if (messages[i].role === 'assistant') { existingIdx = i; break; }
             }
           }
-        } else {
-          // type === 'chunk'
-          if (chunk) {
-            const raw = `${String(target.content ?? '')}${chunk}`;
-            const clean = raw.replace(/<!--CF_ACTION_PLAN_START-->[\s\S]*?<!--CF_ACTION_PLAN_END-->/g, '')
-                             .replace(/<!--CF_ACTION_PLAN_START-->|<!--CF_ACTION_PLAN_END-->/g, '');
-            messages[existingIdx] = {
-              ...target,
-              content: clean,
-            }
+
+          if (existingIdx !== -1) {
+            const target = { ...messages[existingIdx] };
+            // NỐI CHUNK: Không lọc Regex ở đây để tránh lỗi vỡ mảnh (Fragmentation).
+            // Việc lọc đã có AgentMessageContent lo ở tầng Render.
+            target.content = (target.content ?? '') + payload.chunk;
+            messages[existingIdx] = target;
+          } else {
+            messages.push({
+              messageId: msgId,
+              role: 'assistant',
+              content: payload.chunk ?? '',
+              createdAt: new Date().toISOString(),
+            });
           }
-        }
+          return { ...prev, status: 'in_progress', messages };
+        });
+      }
+    };
 
-        return {
-          ...prev,
-          status: 'in_progress',
-          messages,
-        }
-      })
-    })
-
-    socket.on('task.status', (payload: { taskId?: string; status?: string; result?: string; messageId?: string; draft_payload?: string }) => {
-      if (!payload || String(payload.taskId ?? '') !== String(taskId)) return
-      // Cập nhật status + content NGAY LẬP TỨC (real-time) — không chờ fetchTask()
-      const newStatus = payload.status as Task['status'] | undefined
+    // 2. Hàm xử lý Status (Kết thúc/Cập nhật trạng thái)
+    const handleStatus = (payload: { taskId?: string; status?: string; result?: string; messageId?: string; draft_payload?: string }) => {
+      if (!payload || String(payload.taskId ?? '') !== String(taskId)) return;
+      
+      console.log('🛑 TASK STATUS CHỐT SỔ:', payload.result);
+      const newStatus = payload.status as Task['status'] | undefined;
       if (newStatus) {
         setTask((prev) => {
-          if (!prev || String(prev._id) !== String(taskId)) return prev
+          if (!prev || String(prev._id) !== String(taskId)) return prev;
           const updated = { 
             ...prev, 
             status: newStatus,
-            // QUAN TRỌNG: Nếu NestJS có gửi nháp về, phải lưu nó lại để render ActionCard
             ...(payload.draft_payload && { draft_payload: payload.draft_payload }),
-          }
-          // CẬP NHẬT NỘI DUNG ASSISTANT BUBBLE NGAY TỪ SOCKET (Fix "Mù Real-time")
+          };
+          
+          // Cập nhật kết quả cuối cùng từ Result (nếu có)
           if (payload.result && Array.isArray(updated.messages)) {
-            const messages = [...updated.messages]
-            const msgId = payload.messageId
-            let targetIdx = -1
-            if (msgId) {
-              targetIdx = messages.findIndex(m => m.messageId === msgId)
-            }
+            const messages = [...updated.messages];
+            const msgId = payload.messageId;
+            let targetIdx = msgId ? messages.findIndex(m => m.messageId === msgId) : -1;
+            
             if (targetIdx === -1) {
-              // Fallback: tìm assistant message cuối cùng
               for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].role === 'assistant') { targetIdx = i; break }
+                if (messages[i].role === 'assistant') { targetIdx = i; break; }
               }
             }
             if (targetIdx !== -1) {
-              messages[targetIdx] = { ...messages[targetIdx], content: payload.result }
+              messages[targetIdx] = { ...messages[targetIdx], content: payload.result };
             }
-            updated.messages = messages
+            updated.messages = messages;
           }
-          return updated
-        })
+          return updated;
+        });
+        
         if (newStatus === 'completed' || newStatus === 'failed') {
-          setLeaderThoughtStream('')
+          setLeaderThoughtStream('');
         }
       }
-      // Fetch full task data sau 500ms để đồng bộ (debounce — tránh DB chưa commit)
-      const fetchTimer = setTimeout(() => {
-        void (async () => {
-          try {
-            const t = await fetchTask(taskId, workspaceId)
-            setTask((prev) => mergeTaskMessagesPreferLocal(prev, t))
-          } catch {
-            // giữ im lặng: status sẽ đồng bộ lại ở lần reload tiếp theo
-          }
-        })()
-      }, 500)
-      return () => clearTimeout(fetchTimer)
-    })
+    };
 
-    socket.on('SHOW_ACTION_CARD', (payload: { taskId: string; type: string; data: any }) => {
-      if (String(payload.taskId) !== String(taskId)) return
+    // 3. Hàm xử lý Card hành động
+    const handleShowCard = (payload: { taskId: string; type: string; data: any }) => {
+      if (String(payload.taskId) !== String(taskId)) return;
       setTask((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          status: 'waiting_human_input',
-          draft_payload: JSON.stringify(payload.data)
-        }
-      })
-    })
+        if (!prev) return prev;
+        return { ...prev, status: 'waiting_human_input', draft_payload: JSON.stringify(payload.data) };
+      });
+    };
+
+    socket.on('connect', () => {
+      socket.emit('join_workspace', workspaceId);
+    });
+
+    socket.on('task.stream', handleStream);
+    socket.on('task.status', handleStatus);
+    socket.on('SHOW_ACTION_CARD', handleShowCard);
 
     return () => {
-      socket.disconnect()
+      console.log("🧹 Dọn dẹp Socket listener & disconnect...");
+      socket.off('task.stream', handleStream);
+      socket.off('task.status', handleStatus);
+      socket.off('SHOW_ACTION_CARD', handleShowCard);
+      socket.disconnect();
     }
   }, [workspaceId, taskId])
 

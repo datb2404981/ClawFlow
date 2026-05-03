@@ -7,6 +7,7 @@ import { Agents } from '../schema/ai-center.schema';
 import { ListAgentsQueryDto } from '../dto/list-agents-query.dto';
 import { UpdateAgentDto } from '../dto/update-agent.dto';
 import { RefineSystemPromptDto } from '../dto/refine-system-prompt.dto';
+import { RefineEmailDto } from '../dto/refine-email.dto';
 
 @Controller('agents')
 export class AgentsController {
@@ -59,5 +60,11 @@ export class AgentsController {
   @ResponseMessage('Tối ưu hệ thống prompt thành công')
   refineSystemPrompt(@Body() dto: RefineSystemPromptDto) {
     return this.agentsService.refineSystemPrompt(dto.systemPromptOfUser);
+  }
+
+  @Post('/refine-email')
+  @ResponseMessage('Tối ưu email thành công')
+  refineEmail(@Body() dto: RefineEmailDto) {
+    return this.agentsService.refineEmailDraft(dto.emailBody);
   }
 }

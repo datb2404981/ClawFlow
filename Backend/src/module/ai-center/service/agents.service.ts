@@ -309,4 +309,58 @@ export class AgentsService {
     }
     return { message: body.message, data: body.data };
   }
+
+  async refineEmailDraft(emailBody: string): Promise<{
+    message: string;
+    data: string;
+  }> {
+    const base = resolveAiCoreBaseUrl(this.config);
+    const url = `${base}/api/v1/refine-email`;
+    let res: Response;
+    try {
+      res = await fetchAiCoreWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailBody }),
+        signal: AbortSignal.timeout(AI_CORE_FETCH_TIMEOUT_MS),
+      });
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+        throw new HttpException(
+          `AI Core không trả lời trong ${AI_CORE_FETCH_TIMEOUT_MS / 1000}s.`,
+          HttpStatus.GATEWAY_TIMEOUT,
+        );
+      }
+      const hint = connectionHintForAiCore(url, err.message);
+      throw new HttpException(
+        `Không kết nối được AI Core (${url}): ${err.message}${hint}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    const text = await res.text();
+    if (!res.ok) {
+      const detail = parseFastApiErrorBody(text);
+      throw new HttpException(
+        `AI Core trả lỗi ${res.status}: ${detail.slice(0, 2000)}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    let body: { message?: string; data?: string };
+    try {
+      body = JSON.parse(text) as { message?: string; data?: string };
+    } catch {
+      throw new HttpException(
+        'AI Core trả về không phải JSON',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    if (typeof body.data !== 'string' || typeof body.message !== 'string') {
+      throw new HttpException(
+        'AI Core thiếu trường message/data',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    return { message: body.message, data: body.data };
+  }
 }

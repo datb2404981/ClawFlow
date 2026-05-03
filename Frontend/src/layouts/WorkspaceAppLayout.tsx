@@ -414,7 +414,7 @@ export function WorkspaceAppLayout() {
     })
 
     socket.on('connect', () => {
-      socket.emit('joinWorkspace', workspaceId)
+      socket.emit('join_workspace', workspaceId)
     })
 
     socket.on(

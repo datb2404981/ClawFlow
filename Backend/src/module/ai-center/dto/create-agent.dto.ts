@@ -9,11 +9,11 @@ import {
 export class CreateAgentDto {
   @IsNotEmpty()
   @IsString()
-  name: string;
+  name!: string;
 
   @IsNotEmpty()
   @IsString()
-  workspace_id: string;
+  workspace_id!: string;
 
   @IsOptional()
   @IsString()
@@ -21,7 +21,7 @@ export class CreateAgentDto {
 
   @IsNotEmpty()
   @IsString()
-  system_prompt: string;
+  system_prompt!: string;
 
   @IsOptional()
   @IsArray()
@@ -30,7 +30,7 @@ export class CreateAgentDto {
 
   @IsOptional()
   @IsString()
-  custom_skills: string;
+  custom_skills?: string;
 
   /** Gắn skill template từ thư viện (cùng workspace, tuân theo quyền private/workspace). */
   @IsOptional()

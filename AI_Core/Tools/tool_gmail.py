@@ -73,8 +73,8 @@ def read_gmail_tool(
     config: Annotated[RunnableConfig, InjectedToolArg] = None,
 ) -> str:
     """
-    CHỈ SỬ DỤNG công cụ này khi người dùng RÕ RÀNG yêu cầu: ĐỌC, KIỂM TRA, 
-    XEM, TÌM KIẾM, hoặc TÓM TẮT email đang có trong hộp thư (Inbox).
+    Công cụ Read_Email: CHỈ sử dụng khi người dùng có yêu cầu rõ ràng về việc KIỂM TRA, ĐỌC, hoặc TÓM TẮT email. 
+    TỔI KỴ: Không được gọi công cụ này nếu người dùng chỉ yêu cầu tạo lịch hoặc nhắc nhở.
     TUYỆT ĐỐI KHÔNG dùng công cụ này nếu người dùng yêu cầu VIẾT, GỬI, TRẢ LỜI mail.
     """
     cfg = config or {}
