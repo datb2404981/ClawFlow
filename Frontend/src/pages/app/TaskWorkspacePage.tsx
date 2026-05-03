@@ -905,7 +905,8 @@ export function TaskWorkspacePage() {
           const updated = { 
             ...prev, 
             status: newStatus,
-            draft_payload: payload.draft_payload ?? prev.draft_payload,
+            // QUAN TRỌNG: Nếu NestJS có gửi nháp về, phải lưu nó lại để render ActionCard
+            ...(payload.draft_payload && { draft_payload: payload.draft_payload }),
           }
           // CẬP NHẬT NỘI DUNG ASSISTANT BUBBLE NGAY TỪ SOCKET (Fix "Mù Real-time")
           if (payload.result && Array.isArray(updated.messages)) {
@@ -944,6 +945,18 @@ export function TaskWorkspacePage() {
         })()
       }, 500)
       return () => clearTimeout(fetchTimer)
+    })
+
+    socket.on('SHOW_ACTION_CARD', (payload: { taskId: string; type: string; data: any }) => {
+      if (String(payload.taskId) !== String(taskId)) return
+      setTask((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          status: 'waiting_human_input',
+          draft_payload: JSON.stringify(payload.data)
+        }
+      })
     })
 
     return () => {

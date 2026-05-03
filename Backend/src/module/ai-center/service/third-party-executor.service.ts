@@ -114,7 +114,7 @@ export class ThirdPartyExecutorService {
   ): Promise<{ resultText: string }> {
     const type = String(action?.type ?? action?.action_type ?? 'unknown');
 
-    if (type === 'gmail_send' || type === 'reply_email') {
+    if (type === 'gmail_send' || type === 'reply_email' || type === 'send_email') {
       const conn = integrationsGate.connections['gmail'];
       if (!conn?.connected || !conn?.access_token) {
         throw new Error('Chưa kết nối Gmail hoặc thiếu token');

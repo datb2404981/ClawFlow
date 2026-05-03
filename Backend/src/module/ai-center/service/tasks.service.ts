@@ -537,13 +537,16 @@ export class TasksService {
         }
       );
 
-      const streamResult: unknown = await this.aiCoreService.chatWithAiStream(
-        userMessage,
-        creatorHex,
-        sessionId,
-        taskDoc.status,
-        taskDoc.draft_payload || '',
-        (event: Record<string, any>) => {
+    let actionPlanBuffer = '';
+    let isCapturingActionPlan = false;
+
+    const streamResult: unknown = await this.aiCoreService.chatWithAiStream(
+      userMessage,
+      creatorHex,
+      sessionId,
+      taskDoc.status,
+      taskDoc.draft_payload || '',
+      (event: Record<string, any>) => {
           if (event.type === 'status') {
             const node = event.node || '';
             let label = NODE_STEP_LABELS[node];
@@ -562,6 +565,7 @@ export class TasksService {
             }
           }
           // #region agent log
+          /*
           if (
             typeof event?.chunk === 'string' &&
             /PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(
@@ -570,12 +574,12 @@ export class TasksService {
           ) {
             fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-stream:${taskIdHex}`,hypothesisId:'H3',location:'Backend/src/module/ai-center/service/tasks.service.ts:511',message:'event_forward_to_ws_contains_reviewer_markers',data:{eventType:event?.type ?? '',node:event?.node ?? '',status:event?.status ?? '',chunkPreview:String(event.chunk).slice(0,220)},timestamp:Date.now()})}).catch(()=>{});
           }
+          */
           // #endregion
           // Strip Action Plan markers from stream chunks so user doesn't see them
           if (event.type === 'chunk' && typeof event.chunk === 'string') {
-            event.chunk = event.chunk.replace(/<!--CF_ACTION_PLAN_START-->[\s\S]*?<!--CF_ACTION_PLAN_END-->/g, '');
-            // Also strip just the markers if they come in separate chunks
-            event.chunk = event.chunk.replace(/<!--CF_ACTION_PLAN_START-->|<!--CF_ACTION_PLAN_END-->/g, '');
+            event.chunk = event.chunk.replace(/<!--CF_ACTION_PLAN_START-->[\s\S]*?<!--CF_ACTION_PLAN_END-->/g, '')
+                                     .replace(/<!--CF_ACTION_PLAN_START-->|<!--CF_ACTION_PLAN_END-->/g, '');
           }
           if (event.type === 'tool' && event.tool === 'read_gmail_tool') {
             hasSyncedGmail = true;
@@ -618,7 +622,9 @@ export class TasksService {
       }
 
       // #region agent log
+      /*
       fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`task-result:${taskIdHex}`,hypothesisId:'H4',location:'Backend/src/module/ai-center/service/tasks.service.ts:550',message:'result_before_db_persist',data:{resultLen:result.length,hasReviewMarkers:/PASS|FAIL|Lý do:|Gợi ý:|Bạn là một KIỂM DUYỆT VIÊN/i.test(result),resultTail:result.slice(-260)},timestamp:Date.now()})}).catch(()=>{});
+      */
       // #endregion
 
       // 8. Cập nhật trạng thái + lịch sử assistant
@@ -660,8 +666,15 @@ export class TasksService {
           : cleanResult;
 
         const requiresHuman = Boolean(actionPlan?.requires_human);
-        const nextStatus = requiresHuman ? 'waiting_human_input' : (isDraftMode ? 'waiting_execute_approval' : 'completed');
-        const draftPayload = hasActionPlan ? JSON.stringify(actionPlan) : null;
+        const draftPayload = actionPlan; // Bóc tách draftPayload từ actionPlan
+
+        // --- ÉP BUỘC TRẠNG THÁI (Kỷ luật thép) ---
+        // Nếu có draft_payload, BẮT BUỘC status phải là waiting_human_input để hiện Action Card
+        let finalStatus = requiresHuman ? 'waiting_human_input' : (isDraftMode ? 'waiting_execute_approval' : 'completed');
+        if (draftPayload) {
+          // Nếu phát hiện có bản nháp email hoặc hành động cần duyệt, BẮT BUỘC hệ thống phải chuyển sang CHỜ XÁC NHẬN
+          finalStatus = 'waiting_human_input';
+        }
 
         const draftAssistantBubble = {
           ...assistantBubble,
@@ -673,9 +686,9 @@ export class TasksService {
             { _id: taskDoc._id },
             {
               $set: {
-                status: nextStatus,
+                status: finalStatus,
                 result: userVisibleMessage,
-                draft_payload: draftPayload,
+                draft_payload: draftPayload ? JSON.stringify(draftPayload) : '',
                 messages: [
                   {
                     role: 'user',
@@ -691,7 +704,11 @@ export class TasksService {
           await this.taskModel.updateOne(
             { _id: taskDoc._id },
             {
-              $set: { status: nextStatus, result: userVisibleMessage, draft_payload: draftPayload },
+              $set: { 
+                status: finalStatus, 
+                result: userVisibleMessage, 
+                draft_payload: draftPayload ? JSON.stringify(draftPayload) : '' 
+              },
               $push: { messages: draftAssistantBubble },
             },
           );
@@ -700,12 +717,12 @@ export class TasksService {
         this.tasksGateway.emitTaskStatus(
           workspaceIdStr,
           taskId,
-          nextStatus,
+          finalStatus,
           userVisibleMessage,
           assistantMsgId,
           { draft_payload: draftPayload }
         );
-        this.logger.log(`Task ${taskIdHex}: draft ready → ${nextStatus}`);
+        this.logger.log(`Task ${taskIdHex}: draft ready → ${finalStatus} (Forced if draft exists)`);
       } else {
         // BƯỚC 2: Khi chạy xong, cập nhật lại nội dung cho chính bubble đó (Completed)
         await this.taskModel.updateOne(
@@ -1273,7 +1290,9 @@ export class TasksService {
     );
 
     // --- BƯỚC 3: Bắn WebSocket qua Frontend ---
-    this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, nextStatus, resultMsg, actionMsgId);
+    this.tasksGateway.emitTaskStatus(workspaceIdStr, taskId, nextStatus, resultMsg, actionMsgId, {
+      draft_payload: actionPlan
+    });
 
     const updated = await this.taskModel.findById(taskDoc._id).lean().exec();
     return updated as object;
@@ -1362,7 +1381,9 @@ export class TasksService {
       throw new BadRequestException('Nội dung tin nhắn không được để trống.');
     }
     // #region agent log
+    /*
     fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`append-user-message:${String(doc._id)}`,hypothesisId:'H16',location:'Backend/src/module/ai-center/service/tasks.service.ts:1158',message:'append_user_message_before_update',data:{taskId:String(doc._id),status:doc.status,messagesLen:Array.isArray(doc.messages)?doc.messages.length:0,workspaceId:String(doc.workspace_id),textLen:trimmed.length},timestamp:Date.now()})}).catch(()=>{});
+    */
     // #endregion
     await this.taskModel.updateOne(
       { _id: doc._id },
@@ -1379,8 +1400,10 @@ export class TasksService {
       },
     );
     // #region agent log
+    /*
     const updatedDocForDebug = await this.taskModel.findById(doc._id).lean().exec();
     fetch('http://127.0.0.1:7397/ingest/61f9edc5-769f-4480-8e6d-d96b9963be00',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de0ba6'},body:JSON.stringify({sessionId:'de0ba6',runId:`append-user-message:${String(doc._id)}`,hypothesisId:'H16',location:'Backend/src/module/ai-center/service/tasks.service.ts:1174',message:'append_user_message_after_update',data:{taskId:String(updatedDocForDebug?._id ?? ''),status:String(updatedDocForDebug?.status ?? ''),messagesLen:Array.isArray(updatedDocForDebug?.messages)?updatedDocForDebug.messages.length:0},timestamp:Date.now()})}).catch(()=>{});
+    */
     // #endregion
     await this.tasksQueue.add(
       'process_task',
