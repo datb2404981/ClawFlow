@@ -20,7 +20,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 _VN_TZ = timezone(timedelta(hours=7))
 
 # ━━━ Model configuration (GA stable) ━━━
-GEMINI_MODEL_EMAIL_ANALYZER = "gemini-2.5-flash-lite"
+GEMINI_MODEL_EMAIL_ANALYZER = "gemini-3.1-flash-lite-preview"
 
 
 # ═══════════════════════════════════════════════════════════
